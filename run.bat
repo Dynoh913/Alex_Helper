@@ -8,5 +8,5 @@ pause
 exit /b 1
 
 :run_app
-".venv\Scripts\python.exe" "voice_assistant.py"
+".venv\Scripts\python.exe" -u "voice_assistant.py"
 pause
