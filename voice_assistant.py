@@ -3,6 +3,7 @@ import sys
 import re
 import time
 import shutil
+import collections
 import threading
 import audioop
 import subprocess
@@ -36,29 +37,20 @@ GLOBAL_HOTKEY = "ctrl+alt+space"
 # Tự động tìm đường dẫn Antigravity CLI (agy) linh hoạt trên mọi máy tính
 def get_antigravity_executable():
     """Tự động tìm agy trên PATH hoặc thư mục cài đặt mặc định của Antigravity"""
-    # 1. Tìm trên biến môi trường PATH
     agy_on_path = shutil.which("agy") or shutil.which("agy.exe")
     if agy_on_path:
         return agy_on_path
 
-    # 2. Tìm trong thư mục cài đặt mặc định ~/.gemini/bin/agy.exe
     default_gemini_path = os.path.expanduser(r"~/.gemini/bin/agy.exe")
     if os.path.exists(default_gemini_path):
         return default_gemini_path
 
-    # 3. Fallback lệnh gọi
     return "agy"
 
 AGY_PATH = get_antigravity_executable()
 
 # Ngưỡng kích hoạt mô hình âm học Wake Word On-device (0.0 -> 1.0)
 WAKE_THRESHOLD = 0.42
-
-# Regex nhận diện Wake Word "Hey Alex"
-WAKE_WORD_PATTERN = re.compile(
-    r"^(.*?)\b(?:hey\s+|ê\s+|ơi\s+)?(?:alex|a\s*lếch|a\s*léc|alec)\b\s*(.*)$",
-    re.IGNORECASE,
-)
 
 # Regex nhận diện và loại bỏ từ chốt câu "over"
 OVER_TERMINATION_PATTERN = re.compile(
@@ -102,32 +94,34 @@ def speak(text):
         pass
 
 def play_beep(tone_type):
-    """Phát âm thanh bíp phản hồi"""
+    """Phát âm thanh bíp phản hồi tức thì (Zero latency, không gây vọng tiếng qua mic)"""
     try:
         if tone_type == "wake":
-            winsound.Beep(1200, 80)
-            winsound.Beep(1800, 100)
+            # Âm kép nhẹ nhàng giống Siri / Google Assistant
+            winsound.Beep(1200, 70)
+            winsound.Beep(1800, 90)
         elif tone_type == "ready":
-            winsound.Beep(1200, 120)
+            winsound.Beep(1400, 100)
         elif tone_type == "stop":
             winsound.Beep(1600, 80)
         elif tone_type == "cancel":
-            winsound.Beep(400, 200)
+            winsound.Beep(400, 180)
         elif tone_type == "success":
-            winsound.Beep(1500, 100)
-            winsound.Beep(1800, 120)
+            winsound.Beep(1500, 90)
+            winsound.Beep(1800, 100)
         elif tone_type == "error":
-            winsound.Beep(500, 250)
+            winsound.Beep(500, 200)
     except Exception:
         pass
 
-def record_audio_interactive(max_duration=15, silence_timeout=1.2):
+def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frames=None):
     """
     Thu âm tương tác thông minh (Sau khi Alex được đánh thức):
     - Tự động ngắt khi im lặng 1.2s
     - Nói 'OVER' ở cuối câu để chốt
     - Bấm Space / Enter / Ctrl+Alt+Space để CHỐT LỆNH NGAY
     - Bấm Esc để HỦY LỆNH
+    - initial_frames: Pre-roll buffer giữ lại câu nói ngay sau từ 'Alex'
     """
     global is_recording
     stop_recording_event.clear()
@@ -141,10 +135,10 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.2):
     p = pyaudio.PyAudio()
     stream = p.open(format=pyaudio.paInt16, channels=1, rate=RATE, input=True, frames_per_buffer=CHUNK)
 
-    frames = []
+    frames = list(initial_frames) if initial_frames else []
     start_time = time.time()
     last_sound_time = start_time
-    has_spoken = False
+    has_spoken = len(frames) > 0
 
     print("\n" + "=" * 65)
     print(" [MICRO BẬT] Hãy nói yêu cầu của bạn...")
@@ -211,15 +205,18 @@ def execute_antigravity(command):
 
     try:
         subprocess.run([AGY_PATH, "--prompt-interactive", command])
+    except FileNotFoundError:
+        print(f" [LỖI]: Không tìm thấy Antigravity CLI tại '{AGY_PATH}'.")
+        speak("Không tìm thấy Antigravity CLI trên máy tính của bạn.")
     except Exception as e:
-        print(f" [LỖI CHẠY AGY] {e}")
+        print(f" [LỖI CHẠY AGY]: {e}")
     finally:
         speak("Đã thực hiện xong. Alex tiếp tục chạy nền.")
         print("\n [ALEX]: Sẵn sàng chờ 'Hey Alex' hoặc [Ctrl + Alt + Space]...")
 
-def handle_user_interaction(recognizer):
+def handle_user_interaction(recognizer, initial_frames=None):
     """Quản lý phiên thu âm tương tác và dịch giọng nói"""
-    audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.2)
+    audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frames=initial_frames)
     if not audio_data:
         return
 
@@ -259,7 +256,7 @@ def on_hotkey_pressed(recognizer):
 
     try:
         print(f"\n [HOTKEY KÍCH HOẠT]: Đã nhấn {GLOBAL_HOTKEY.upper()}!")
-        speak("Dạ, Alex đang nghe!")
+        play_beep("ready")
         handle_user_interaction(recognizer)
     finally:
         with lock:
@@ -280,8 +277,9 @@ def on_global_key_event(e):
 def continuous_wake_word_loop(recognizer):
     """
     Vòng lặp lắng nghe liên tục bằng mô hình AI On-device (openWakeWord)
-    - KHÔNG CÓ BOUNDARY ISSUE (dòng dữ liệu âm thanh chạy liên tục 80ms không ngắt quãng)
-    - NHẠY NHƯ SIRI/GOOGLE ASSISTANT (phản xạ 0.2s trực tiếp trên CPU, không qua mạng)
+    - KHÔNG CÓ BOUNDARY ISSUE: Sử dụng Ring Buffer 80ms liên tục
+    - NHẠY NHƯ SIRI/GOOGLE ASSISTANT: Phản xạ âm kép 0.15s, mic mở ngay không bị delay
+    - PRE-ROLL BUFFER: Giữ lại âm thanh liền mạch ngay sau từ 'Alex'
     """
     global is_processing, is_recording
     
@@ -295,6 +293,8 @@ def continuous_wake_word_loop(recognizer):
 
     CHUNK_SAMPLES = 1280  # 80ms tại 16000Hz (chuẩn mô hình openWakeWord)
     RATE = 16000
+    PRE_ROLL_CHUNKS = 8   # Lưu trữ ~0.64s âm thanh đệm
+    ring_buffer = collections.deque(maxlen=PRE_ROLL_CHUNKS)
 
     p = pyaudio.PyAudio()
     
@@ -305,7 +305,7 @@ def continuous_wake_word_loop(recognizer):
 
         try:
             stream = p.open(format=pyaudio.paInt16, channels=1, rate=RATE, input=True, frames_per_buffer=CHUNK_SAMPLES)
-        except Exception as e:
+        except Exception:
             time.sleep(1)
             continue
 
@@ -314,6 +314,7 @@ def continuous_wake_word_loop(recognizer):
         try:
             while not (is_processing or is_recording):
                 audio_bytes = stream.read(CHUNK_SAMPLES, exception_on_overflow=False)
+                ring_buffer.append(audio_bytes)
                 audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
 
                 prediction = owwModel.predict(audio_np)
@@ -325,19 +326,22 @@ def continuous_wake_word_loop(recognizer):
                     
                     with lock:
                         is_processing = True
-                    
+
+                    # Lấy khung dữ liệu đệm pre-roll ngay sau từ Alex để tránh mất từ
+                    pre_roll = list(ring_buffer)
+                    ring_buffer.clear()
+
                     stream.stop_stream()
                     stream.close()
 
                     try:
-                        speak("Dạ, Alex đang nghe!")
-                        handle_user_interaction(recognizer)
+                        handle_user_interaction(recognizer, initial_frames=pre_roll)
                     finally:
                         with lock:
                             is_processing = False
                     
                     break
-        except Exception as e:
+        except Exception:
             pass
         finally:
             try:
