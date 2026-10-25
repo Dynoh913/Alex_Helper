@@ -1,53 +1,66 @@
 @echo off
-chcp 65001 >nul
-title Cài đặt Alex Helper - Antigravity Voice Assistant
+setlocal
 cd /d "%~dp0"
 
 echo ==================================================================
-echo       ĐANG CÀI ĐẶT TRỢ LÝ ẢO ALEX (ANTIGRAVITY CLI)
+echo       DANG CAI DAT TRO LY AO ALEX (ANTIGRAVITY CLI)
 echo ==================================================================
 echo.
 
-REM 1. Kiểm tra Python
+REM 1. Kiem tra Python
 python --version >nul 2>&1
+if %errorlevel% equ 0 goto :python_found
+
+echo [ERROR]: May tinh cua ban chua cai dat Python hoac chua them vao PATH!
+echo Vui long cai dat Python 3.10+ tu https://www.python.org/
+echo (Luu y: Tich chon 'Add Python to PATH' khi cai dat).
+echo.
+pause
+exit /b 1
+
+:python_found
+
+REM 2. Tao moi truong ao .venv
+if exist ".venv\Scripts\python.exe" goto :venv_ready
+
+echo [*] Dang tao moi truong ao Python (.venv)...
+python -m venv .venv
 if %errorlevel% neq 0 (
-    echo [LỖI]: Máy tính của bạn chưa cài đặt Python!
-    echo Vui lòng tải và cài đặt Python 3.10+ từ https://www.python.org/
-    echo (Lưu ý: Nhớ tích chọn 'Add Python to PATH' khi cài đặt).
-    echo.
+    echo [ERROR]: Khong the tao moi truong ao .venv.
     pause
     exit /b 1
 )
 
-REM 2. Tạo môi trường ảo .venv
-if not exist ".venv" (
-    echo [*] Đang tạo môi trường ảo Python (.venv)...
-    python -m venv .venv
-)
+:venv_ready
 
-REM 3. Nâng cấp pip và cài đặt thư viện
-echo [*] Đang cài đặt các thư viện cần thiết từ requirements.txt...
+REM 3. Cai dat thu vien
+echo [*] Dang cai dat cac thu vien can thiet tu requirements.txt...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 ".venv\Scripts\pip.exe" install -r requirements.txt
+if %errorlevel% neq 0 (
+    echo [ERROR]: Cai dat thu vien that bai.
+    pause
+    exit /b 1
+)
 
-REM 4. Tải mô hình âm học ONNX
-echo [*] Đang tải các tệp mô hình âm học ONNX (openWakeWord)...
+REM 4. Tai mo hinh ONNX
+echo [*] Dang tai cac tep mo hinh am hoc ONNX (openWakeWord)...
 ".venv\Scripts\python.exe" download_models.py
 
-REM 5. Hỏi người dùng có muốn đăng ký tự khởi động cùng Windows
+REM 5. Hoi dang ky khoi dong cung Windows
 echo.
 echo ==================================================================
-echo Bạn có muốn Alex tự động chạy ngầm mỗi khi khởi động máy không?
-set /p startup_choice="Nhập Y (Có) hoặc N (Không) [Mặc định: Y]: "
-if /i "%startup_choice%"=="n" goto skip_startup
+echo Ban co muon Alex tu dong chay ngam moi khi khoi dong Windows khong?
+set /p startup_choice="Nhap Y (Co) hoac N (Khong) [Mac dinh: Y]: "
+if /i "%startup_choice%"=="n" goto :skip_startup
 
 call setup_startup.bat
 
 :skip_startup
 echo.
 echo ==================================================================
-echo [✓ CHÚC MỪNG]: Cài đặt hoàn tất!
-echo Bạn có thể nhấp đúp vào 'run.bat' để bắt đầu sử dụng Alex ngay.
+echo [OK]: Cai dat hoan tat!
+echo Ban co the nhap dup vao 'run.bat' de bat dau su dung Alex ngay.
 echo ==================================================================
 echo.
 pause
