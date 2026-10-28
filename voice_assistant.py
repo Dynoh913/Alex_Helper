@@ -1,6 +1,14 @@
 import os
 import sys
 
+# Cấu hình UTF-8 toàn diện cho console Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Đảm bảo thư mục gốc của Alex luôn nằm đầu sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
@@ -18,6 +26,11 @@ import pyaudio
 import speech_recognition as sr
 from gtts import gTTS
 import pygame
+try:
+    pygame.mixer.init()
+except Exception as e:
+    print(f" [LƯU Ý]: pygame.mixer chưa thể khởi tạo ngay: {e}")
+
 import keyboard
 from openwakeword.model import Model
 
@@ -39,9 +52,9 @@ def get_antigravity_executable():
 
 AGY_PATH = get_antigravity_executable()
 
-# Ngưỡng kích hoạt mô hình Wake Word On-device chuẩn xác
-WAKE_THRESHOLD = 0.35
-PEAK_CONFIDENCE_THRESHOLD = 0.48
+# Ngưỡng kích hoạt mô hình Wake Word On-device (Tối ưu cho tiếng Việt)
+WAKE_THRESHOLD = 0.28
+PEAK_CONFIDENCE_THRESHOLD = 0.40
 
 # Regex nhận diện và loại bỏ từ chốt câu "over"
 OVER_TERMINATION_PATTERN = re.compile(
@@ -76,6 +89,12 @@ def speak(text, interruptible=True):
     print(f" 🗣️ [ALEX NÓI]: {text}")
     temp_file = os.path.join(BASE_DIR, f"temp_{int(time.time() * 1000)}.mp3")
     try:
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+        except Exception:
+            pass
+
         tts = gTTS(text=text, lang="vi", slow=False)
         tts.save(temp_file)
         
@@ -117,11 +136,11 @@ def play_beep(tone_type):
     except Exception:
         pass
 
-def record_audio_interactive(max_duration=15, silence_timeout=1.8, initial_frames=None):
+def record_audio_interactive(max_duration=15, silence_timeout=1.6, initial_frames=None):
     """
     Thu âm tương tác thông minh kết hợp hiển thị trạng thái lên Floating HUD:
     - Tự động đo độ ồn phòng (Adaptive Noise Floor)
-    - Tự động ngắt khi phát hiện im lặng 1.8s sau khi nói
+    - Tự động ngắt khi phát hiện im lặng 1.6s sau khi nói
     - Hỗ trợ chốt lệnh bằng: từ 'OVER', phím [Space], [Enter], hoặc phím tắt
     - Hỗ trợ hủy bằng: phím [Esc]
     """
@@ -138,11 +157,11 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.8, initial_frame
 
     # Đo độ ồn phòng trong 0.2s đầu tiên
     ambient_samples = []
-    for _ in range(3):
+    for _ in range(4):
         chunk_data = stream.read(CHUNK, exception_on_overflow=False)
         ambient_samples.append(audioop.rms(chunk_data, 2))
-    ambient_rms = int(sum(ambient_samples) / len(ambient_samples)) if ambient_samples else 100
-    energy_threshold = max(200, int(ambient_rms * 1.6))
+    ambient_rms = int(sum(ambient_samples) / len(ambient_samples)) if ambient_samples else 6
+    energy_threshold = max(ambient_rms + 12, int(ambient_rms * 1.5))
 
     frames = list(initial_frames) if initial_frames else []
     start_time = time.time()
@@ -339,8 +358,8 @@ def continuous_wake_word_loop(recognizer):
                 recent_scores.append(score)
 
                 is_wake = False
-                # Chỉ xét kích hoạt khi có âm lượng thực tế phát ra (tránh xung nhiễu trong phòng im ắng)
-                if rms > 150:
+                # Bỏ qua khi mic tắt tiếng hoàn toàn
+                if rms >= 2:
                     if score >= WAKE_THRESHOLD:
                         consecutive_hits += 1
                         if consecutive_hits >= 2:
@@ -349,7 +368,7 @@ def continuous_wake_word_loop(recognizer):
                         consecutive_hits = 0
 
                     if not is_wake and len(recent_scores) >= 3:
-                        sustained_hits = sum(1 for s in recent_scores if s >= 0.30)
+                        sustained_hits = sum(1 for s in recent_scores if s >= 0.22)
                         peak_score = max(recent_scores)
                         if sustained_hits >= 2 and peak_score >= PEAK_CONFIDENCE_THRESHOLD:
                             is_wake = True

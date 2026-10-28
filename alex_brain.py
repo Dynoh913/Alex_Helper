@@ -50,11 +50,11 @@ def clean_command(text):
     return cmd
 
 def ask_gemini_ai(prompt):
-    """Truy vấn câu hỏi tổng quát với Gemini Flash AI siêu tốc (trả lời ngắn gọn 1-2 câu tiếng Việt)"""
+    """Truy vấn câu hỏi tổng quát với Gemini Flash AI siêu tốc (timeout 4s chống đơ)"""
     if not GEMINI_API_KEY:
         return None
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
+    candidate_models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
     system_instruction = (
         "Bạn là Alex, trợ lý ảo thông minh trên máy tính Windows. "
         "Hãy trả lời người dùng một cách thân thiện, chính xác, cực kỳ ngắn gọn (chỉ 1 hoặc 2 câu) "
@@ -65,24 +65,19 @@ def ask_gemini_ai(prompt):
         "systemInstruction": {"parts": [{"text": system_instruction}]}
     }
 
-    try:
-        resp = requests.post(url, json=payload, timeout=12)
-        if resp.status_code == 200:
-            candidates = resp.json().get("candidates", [])
-            if candidates:
-                text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                text = re.sub(r'[\*\#\_\[\]\`]', '', text).strip()
-                return text
-        else:
-            # Fallback sang gemini-flash-latest
-            url_fb = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
-            resp_fb = requests.post(url_fb, json=payload, timeout=10)
-            if resp_fb.status_code == 200:
-                text = resp_fb.json().get("candidates", [])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                text = re.sub(r'[\*\#\_\[\]\`]', '', text).strip()
-                return text
-    except Exception:
-        pass
+    for model_name in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            resp = requests.post(url, json=payload, timeout=4)
+            if resp.status_code == 200:
+                candidates = resp.json().get("candidates", [])
+                if candidates:
+                    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    text = re.sub(r'[\*\#\_\[\]\`]', '', text).strip()
+                    if text:
+                        return text
+        except Exception:
+            continue
     return None
 
 def ask_antigravity_headless(prompt):
@@ -266,10 +261,25 @@ def process_command(command_text, agy_path=None):
         res = alex_actions.open_web_or_app(target_name)
         return {"type": "app", "title": f"Mở {target_name.title()}", "speech": res, "hud_sub": res}
 
-    # 11. TRẢ LỜI KIẾN THỨC BẰNG GEMINI AI (SIÊU TỐC, KHÔNG MỞ CỬA SỔ)
+    # 11. HỎI ĐÁP VỀ TRỢ LÝ ALEX (TỰ TRẢ LỜI NGAY TỨC THÌ 0s LATENCY)
+    if any(w in cmd for w in ["tại sao", "sao", "vì sao"]) and any(w in cmd for w in ["không nghe", "không trả lời", "gọi"]):
+        reply = "Tôi vẫn đang lắng nghe bạn. Bạn hãy nói to rõ hơn một chút hoặc dùng phím tắt Ctrl Alt Space nhé."
+        return {"type": "ai", "title": "Alex Trả Lời", "speech": reply, "hud_sub": reply}
+
+    if any(w in cmd for w in ["bạn là ai", "tên bạn là gì", "mày là ai", "mày tên gì"]):
+        reply = "Tôi là Alex, trợ lý ảo thông minh giúp bạn điều khiển máy tính."
+        return {"type": "ai", "title": "Alex Trả Lời", "speech": reply, "hud_sub": reply}
+
+    if any(w in cmd for w in ["bạn làm được gì", "bạn có chức năng gì", "chức năng của bạn"]):
+        reply = "Tôi có thể mở ứng dụng, tìm kiếm YouTube, tăng giảm âm lượng, kiểm tra pin, gõ văn bản và trả lời câu hỏi cho bạn."
+        return {"type": "ai", "title": "Alex Trả Lời", "speech": reply, "hud_sub": reply}
+
+    if any(w in cmd for w in ["khỏe không", "bạn có khỏe không"]):
+        reply = "Tôi luôn khỏe và sẵn sàng phục vụ bạn."
+        return {"type": "ai", "title": "Alex Trả Lời", "speech": reply, "hud_sub": reply}
+
+    # 12. TRẢ LỜI KIẾN THỨC BẰNG GEMINI AI (SIÊU TỐC, TIMEOUT 4S)
     ai_answer = ask_gemini_ai(command_text)
-    if not ai_answer:
-        ai_answer = ask_antigravity_headless(command_text)
 
     if ai_answer:
         return {
