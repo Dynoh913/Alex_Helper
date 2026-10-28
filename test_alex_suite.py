@@ -157,8 +157,42 @@ def run_tests():
         print(f" [FAIL] Test 12: {e}")
         failed += 1
 
+    # Test 13: Multi-turn Media Clarification & Multi-platform Router
+    try:
+        import alex_config
+        alex_config.set_default_music_platform("ask")
+        # Khi chưa có nền tảng -> Kích hoạt câu hỏi làm rõ
+        res_clarify = alex_brain.process_command("bật bài sóng gió")
+        assert res_clarify["type"] == "clarify" and "Spotify" in res_clarify["speech"]
+        
+        # Khi người dùng trả lời "Spotify"
+        res_resolved = alex_brain.resolve_clarification(res_clarify, "Spotify")
+        assert res_resolved["type"] == "app" and "Spotify" in res_resolved["title"]
+
+        # Khi người dùng nói trực tiếp "bật bài sóng gió trên zing mp3"
+        res_direct = alex_brain.process_command("bật bài sóng gió trên zing mp3")
+        assert res_direct["type"] == "app" and "Zing MP3" in res_direct["title"]
+
+        print(f" [PASS] Test 13: Hội thoại đa lượt (Clarification) & Đa nền tảng (Spotify/Zing/YouTube)")
+        passed += 1
+    except Exception as e:
+        print(f" [FAIL] Test 13: {e}")
+        failed += 1
+
+    # Test 14: System Media Controls (Play/Pause, Next, Prev)
+    try:
+        res_pause = alex_brain.process_command("tạm dừng nhạc")
+        assert res_pause["type"] == "system" and "Tạm dừng" in res_pause["title"]
+        res_next = alex_brain.process_command("chuyển bài")
+        assert res_next["type"] == "system" and "tiếp theo" in res_next["title"]
+        print(f" [PASS] Test 14: Phím điều khiển phát nhạc toàn hệ thống (Tạm dừng, Chuyển bài)")
+        passed += 1
+    except Exception as e:
+        print(f" [FAIL] Test 14: {e}")
+        failed += 1
+
     print("=" * 60)
-    print(f" KẾT QUẢ: {passed}/12 BÀI KIỂM THỬ ĐẠT CHUẨN (Passed: {passed}, Failed: {failed})")
+    print(f" KẾT QUẢ: {passed}/14 BÀI KIỂM THỬ ĐẠT CHUẨN (Passed: {passed}, Failed: {failed})")
     print("=" * 60)
 
 if __name__ == "__main__":

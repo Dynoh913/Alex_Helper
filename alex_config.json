@@ -1,0 +1,7 @@
+{
+    "user_name": "Bạn",
+    "default_music_platform": "ask",
+    "auto_clarify_media": true,
+    "volume_step": 5,
+    "brightness_step": 15
+}

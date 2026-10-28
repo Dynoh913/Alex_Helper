@@ -241,6 +241,39 @@ def handle_user_interaction(recognizer, initial_frames=None):
         # Xử lý lệnh qua Alex Brain Router
         result = alex_brain.process_command(command, agy_path=AGY_PATH)
         
+        # KIỂM TRA NẾU LỆNH YÊU CẦU LÀM RÕ ĐA LƯỢT (MULTI-TURN CLARIFICATION SESSION)
+        if result.get("type") == "clarify":
+            # 1. Phát âm câu hỏi của Alex: "Bạn muốn nghe 'Sóng Gió' trên YouTube, Spotify hay Zing MP3?"
+            clarify_speech = result.get("speech", "Bạn muốn chọn phương án nào?")
+            hud.show("❓", result.get("title", "Làm rõ yêu cầu"), result.get("hud_sub", "Đang chờ bạn trả lời..."))
+            speak(clarify_speech)
+
+            # 2. Phát âm bíp sẵn sàng và tự động mở micro lắng nghe (không cần gọi lại 'Hey Alex')
+            play_beep("ready")
+            print("\n" + "=" * 65)
+            print(" 👂 [ALEX CHỜ CÂU TRẢ LỜI]: Đang lắng nghe lựa chọn của bạn...")
+            print(" (Nói: 'YouTube', 'Spotify' hoặc 'Zing MP3')")
+            print("=" * 65)
+            hud.update_text("Alex đang nghe lựa chọn...", "Nói: YouTube / Spotify / Zing MP3...")
+
+            followup_audio = record_audio_interactive(max_duration=8, silence_timeout=1.4)
+            followup_text = ""
+            if followup_audio:
+                try:
+                    followup_text = recognizer.recognize_google(followup_audio, language="vi-VN")
+                    followup_text, _ = strip_over_termination(followup_text)
+                    print(f" 🎯 [BẠN TRẢ LỜI]: \"{followup_text}\"")
+                    play_beep("success")
+                except Exception:
+                    pass
+
+            # 3. Phân giải lựa chọn của người dùng hoặc fallback an toàn
+            if not followup_text:
+                print(" ℹ️ [TỰ ĐỘNG CHỌN]: Không nhận được câu trả lời rõ ràng, Alex sẽ mở trên YouTube.")
+                followup_text = "youtube"
+
+            result = alex_brain.resolve_clarification(result, followup_text)
+
         # Cập nhật kết quả lên Floating HUD
         hud.show_success(
             title=result.get("title", "Đã thực hiện"),

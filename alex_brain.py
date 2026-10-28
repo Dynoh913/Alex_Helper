@@ -3,6 +3,7 @@ import re
 import requests
 import subprocess
 import alex_actions
+import alex_config
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
@@ -188,6 +189,42 @@ def process_command(command_text, agy_path=None):
         res = alex_actions.lock_computer()
         return {"type": "system", "title": "Khóa máy tính", "speech": res, "hud_sub": "Bảo mật hệ thống"}
 
+    # 6B. ĐIỀU KHIỂN PHÁT NHẠC TOÀN HỆ THỐNG (MEDIA PLAYBACK CONTROLS)
+    if any(k in cmd for k in ["tạm dừng nhạc", "dừng nhạc", "dừng phát", "tạm dừng", "pause nhạc"]):
+        res = alex_actions.media_control("play_pause")
+        return {"type": "system", "title": "Tạm dừng nhạc", "speech": res, "hud_sub": "Media Play/Pause"}
+
+    if any(k in cmd for k in ["tiếp tục phát", "bật lại nhạc", "phát tiếp", "tiếp tục nghe", "chơi tiếp"]):
+        res = alex_actions.media_control("play_pause")
+        return {"type": "system", "title": "Tiếp tục phát", "speech": res, "hud_sub": "Media Play/Pause"}
+
+    if any(k in cmd for k in ["chuyển bài", "bài tiếp theo", "bài sau", "next bài", "bài kế tiếp"]):
+        res = alex_actions.media_control("next")
+        return {"type": "system", "title": "Bài tiếp theo", "speech": res, "hud_sub": "Next Track"}
+
+    if any(k in cmd for k in ["bài trước", "quay lại bài trước", "lùi bài", "previous track"]):
+        res = alex_actions.media_control("prev")
+        return {"type": "system", "title": "Bài trước", "speech": res, "hud_sub": "Previous Track"}
+
+    # 6C. CÀI ĐẶT SỞ THÍCH & CẤU HÌNH HỆ THỐNG (PREFERENCES)
+    if re.search(r"(?:cài đặt|đặt|chọn)\s+.*(?:mặc định)", cmd) or "làm mặc định" in cmd:
+        if "spotify" in cmd:
+            alex_config.set_default_music_platform("spotify")
+            return {"type": "system", "title": "Cài đặt mặc định", "speech": "Đã đặt Spotify làm nền tảng nghe nhạc mặc định của bạn.", "hud_sub": "Mặc định: Spotify"}
+        elif "youtube" in cmd:
+            alex_config.set_default_music_platform("youtube")
+            return {"type": "system", "title": "Cài đặt mặc định", "speech": "Đã đặt YouTube làm nền tảng nghe nhạc mặc định của bạn.", "hud_sub": "Mặc định: YouTube"}
+        elif "zing" in cmd:
+            alex_config.set_default_music_platform("zingmp3")
+            return {"type": "system", "title": "Cài đặt mặc định", "speech": "Đã đặt Zing MP3 làm nền tảng nghe nhạc mặc định của bạn.", "hud_sub": "Mặc định: Zing MP3"}
+        elif "hỏi" in cmd:
+            alex_config.set_default_music_platform("ask")
+            return {"type": "system", "title": "Cài đặt mặc định", "speech": "Đã bật chế độ luôn hỏi trước khi phát nhạc.", "hud_sub": "Mặc định: Hỏi trước"}
+
+    if cmd in ["hỏi trước khi bật nhạc", "hỏi trước khi phát nhạc", "hỏi nền tảng khi bật nhạc", "luôn hỏi nền tảng"]:
+        alex_config.set_default_music_platform("ask")
+        return {"type": "system", "title": "Cài đặt mặc định", "speech": "Đã bật chế độ luôn hỏi trước khi phát nhạc.", "hud_sub": "Mặc định: Hỏi trước"}
+
     # 7. CHẾ ĐỘ LẬP TRÌNH ANTIGRAVITY (Ưu tiên cao hơn mở app thông thường)
     antigravity_keywords = [
         "antigravity", "mở agy", "bật agy", "chạy agy", "dùng agy",
@@ -203,64 +240,97 @@ def process_command(command_text, agy_path=None):
             "hud_sub": "Mở cửa sổ lập trình chuyên sâu"
         }
 
-    # 8. PHÁT NHẠC, BÀI HÁT & VIDEO (YOUTUBE / MEDIA ROUTER)
-    # A. Nếu người dùng nói đích danh 'YouTube'
-    if "youtube" in cmd:
-        yt_search_patterns = [
-            r"(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)\s*(?:bài hát|bài|video|nhạc|clip|nội dung|phim)?\s*(.+?)\s*(?:trên|ở|qua|bằng)\s*youtube",
-            r"(?:trên|ở)\s*youtube\s*(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)?\s*(?:bài hát|bài|video|nhạc|clip|nội dung|phim)?\s*(.+)",
-            r"youtube\s+(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)\s*(?:bài hát|bài|video|nhạc|clip)?\s*(.+)",
-        ]
+    # 8. PHÁT NHẠC, BÀI HÁT & VIDEO (MULTI-PLATFORM MEDIA & CLARIFICATION ROUTER)
+    # A. Kiểm tra xem người dùng có chỉ định rõ nền tảng phát không
+    # (Ví dụ: "bật bài sóng gió trên spotify", "mở sóng gió trên zing mp3", "nghe nhạc lofi trên youtube")
+    specified_platform = None
+    platform_label = "YouTube"
+    if "spotify" in cmd:
+        specified_platform = "spotify"
+        platform_label = "Spotify"
+    elif "zing" in cmd:
+        specified_platform = "zingmp3"
+        platform_label = "Zing MP3"
+    elif "soundcloud" in cmd:
+        specified_platform = "soundcloud"
+        platform_label = "SoundCloud"
+    elif "nhaccuatui" in cmd:
+        specified_platform = "nhaccuatui"
+        platform_label = "NhacCuaTui"
+    elif "youtube" in cmd:
+        specified_platform = "youtube"
+        platform_label = "YouTube"
+
+    if specified_platform:
+        # Trích xuất từ khóa bài hát/nội dung
+        pat = rf"(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)?\s*(?:bài\s*hát|bài\s*ca|bài|video|nhạc|clip|nội dung|phim)?\s*(.+?)\s*(?:trên|ở|qua|bằng)\s*(?:{specified_platform}|zing\s*mp3)"
+        m = re.search(pat, cmd)
         query = None
-        for pat in yt_search_patterns:
-            m = re.search(pat, cmd)
-            if m:
-                extracted = m.group(1).strip()
+        if m:
+            extracted = m.group(1).strip()
+            if extracted and extracted not in ["trang web", "web", "ứng dụng", "nghe nhạc", "xem", "cho tôi"]:
+                query = extracted
+
+        if not query:
+            pat2 = rf"(?:trên|ở)?\s*(?:{specified_platform}|zing\s*mp3)\s*(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)?\s*(?:bài\s*hát|bài\s*ca|bài|video|nhạc|clip)?\s*(.+)"
+            m2 = re.search(pat2, cmd)
+            if m2:
+                extracted = m2.group(1).strip()
                 if extracted and extracted not in ["trang web", "web", "ứng dụng", "nghe nhạc", "xem", "cho tôi"]:
                     query = extracted
-                    break
 
         if query:
-            res = alex_actions.search_google_or_youtube(query, target="youtube")
-            return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Từ khóa: {query}"}
+            res = alex_actions.play_media_on_platform(query, platform=specified_platform)
+            return {"type": "app", "title": f"{platform_label}: {query.title()}", "speech": res, "hud_sub": f"Từ khóa: {query}"}
         else:
-            res = alex_actions.open_web_or_app("youtube")
-            return {"type": "app", "title": "Mở YouTube", "speech": "Đã mở YouTube trên trình duyệt.", "hud_sub": "https://www.youtube.com"}
+            res = alex_actions.open_web_or_app(specified_platform)
+            return {"type": "app", "title": f"Mở {platform_label}", "speech": f"Đã mở {platform_label}.", "hud_sub": f"https://www.{specified_platform}.com"}
 
-    # B. Yêu cầu bật bài hát / phát nhạc tự nhiên (Không cần nói từ 'YouTube')
+    # B. Yêu cầu bật bài hát / phát nhạc tự nhiên nhưng CHƯA CHỈ ĐỊNH NỀN TẢNG
     # Ví dụ: "Bật bài sóng gió", "Mở bài hát lạc trôi", "Nghe nhạc lofi", "Phát ca khúc..."
+    media_query = None
     music_match = re.match(r"^(?:bật|mở|nghe|phát|chơi)\s+(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s*(.*)$", cmd)
     if music_match:
-        query = music_match.group(1).strip()
-        if query and query not in ["hay", "nhẹ nhàng", "chill"]:
-            res = alex_actions.search_google_or_youtube(query, target="youtube")
-            return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Bài hát: {query}"}
+        media_query = music_match.group(1).strip()
+
+    if not media_query:
+        video_match = re.match(r"^(?:bật|mở|xem|chiếu|phát)\s+(?:video|clip|phim\s*hoạt\s*hình|phim)\s*(.*)$", cmd)
+        if video_match:
+            media_query = video_match.group(1).strip()
+
+    if not media_query:
+        direct_media_match = re.match(r"^(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s+(.+)$", cmd)
+        if direct_media_match:
+            media_query = direct_media_match.group(1).strip()
+
+    if not media_query and cmd in ["bật nhạc", "mở nhạc", "nghe nhạc", "phát nhạc", "bật bài hát", "mở bài hát"]:
+        media_query = "nhạc hay"
+
+    if media_query is not None:
+        target_song = media_query if media_query and media_query not in ["hay", "nhẹ nhàng", "chill"] else "nhạc hay"
+        default_plat = alex_config.get_default_music_platform()
+
+        # NẾU CẤU HÌNH LÀ "ASK" -> KÍCH HOẠT HỘI THOẠI ĐA LƯỢT (CLARIFICATION DIALOGUE)
+        if default_plat == "ask":
+            song_display = f"bài {target_song}" if target_song != "nhạc hay" else "nhạc"
+            return {
+                "type": "clarify",
+                "action": "play_music",
+                "query": target_song,
+                "title": f"Phát: {target_song.title()}",
+                "speech": f"Bạn muốn nghe {song_display} trên YouTube, Spotify hay Zing MP3?",
+                "hud_sub": "Đang chờ: YouTube / Spotify / Zing MP3"
+            }
         else:
-            res = alex_actions.search_google_or_youtube("nhạc hay", target="youtube")
-            return {"type": "app", "title": "YouTube Nhạc Tuyển Chọn", "speech": "Đang mở nhạc hay trên YouTube cho bạn.", "hud_sub": "Nhạc tuyển chọn"}
-
-    # C. Yêu cầu xem video / clip / phim tự nhiên
-    video_match = re.match(r"^(?:bật|mở|xem|chiếu|phát)\s+(?:video|clip|phim\s*hoạt\s*hình|phim)\s*(.*)$", cmd)
-    if video_match:
-        query = video_match.group(1).strip()
-        if query:
-            res = alex_actions.search_google_or_youtube(query, target="youtube")
-            return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Video: {query}"}
-        else:
-            res = alex_actions.open_web_or_app("youtube")
-            return {"type": "app", "title": "Mở YouTube", "speech": "Đã mở YouTube trên trình duyệt.", "hud_sub": "https://www.youtube.com"}
-
-    # D. Mẫu câu trực tiếp bắt đầu bằng 'bài [tên]' hoặc 'nhạc [tên]' (Ví dụ: "bài sóng gió")
-    direct_media_match = re.match(r"^(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s+(.+)$", cmd)
-    if direct_media_match:
-        query = direct_media_match.group(1).strip()
-        res = alex_actions.search_google_or_youtube(query, target="youtube")
-        return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Bài hát: {query}"}
-
-    # E. Các khẩu lệnh nghe nhạc ngắn gọn
-    if cmd in ["bật nhạc", "mở nhạc", "nghe nhạc", "phát nhạc", "bật bài hát", "mở bài hát"]:
-        res = alex_actions.search_google_or_youtube("nhạc hay", target="youtube")
-        return {"type": "app", "title": "YouTube Nhạc Tuyển Chọn", "speech": "Đang mở nhạc hay trên YouTube cho bạn.", "hud_sub": "YouTube Music"}
+            # ĐÃ CÓ NỀN TẢNG MẶC ĐỊNH -> PHÁT THẲNG KHÔNG CẦN HỎI
+            plat_name = "YouTube" if default_plat == "youtube" else ("Spotify" if default_plat == "spotify" else "Zing MP3")
+            res = alex_actions.play_media_on_platform(target_song, platform=default_plat)
+            return {
+                "type": "app",
+                "title": f"{plat_name}: {target_song.title()}",
+                "speech": res,
+                "hud_sub": f"Bài hát: {target_song}"
+            }
 
     # 9. TÌM KIẾM GOOGLE
     google_search_patterns = [
@@ -331,3 +401,54 @@ def process_command(command_text, agy_path=None):
         "speech": "Alex chưa nghe rõ yêu cầu, bạn có thể nói lại được không?",
         "hud_sub": f"\"{command_text}\""
     }
+
+def resolve_clarification(clarify_context, user_reply):
+    """
+    Xử lý câu trả lời tiếp theo của người dùng trong phiên hội thoại đa lượt (Multi-turn):
+    - clarify_context: dict trả về từ turn trước (chứa action, query, v.v.)
+    - user_reply: câu trả lời giọng nói của người dùng (ví dụ: 'Spotify', 'YouTube', 'Zing MP3 và đặt làm mặc định')
+    """
+    if not clarify_context or not isinstance(clarify_context, dict):
+        return {"type": "app", "title": "Hoàn tất", "speech": "Đã xử lý yêu cầu.", "hud_sub": ""}
+
+    action = clarify_context.get("action", "")
+    query = clarify_context.get("query", "nhạc hay")
+    reply = clean_command(user_reply).lower()
+
+    if action == "play_music":
+        platform = "youtube"
+        plat_title = "YouTube"
+
+        if "spotify" in reply:
+            platform = "spotify"
+            plat_title = "Spotify"
+        elif "zing" in reply:
+            platform = "zingmp3"
+            plat_title = "Zing MP3"
+        elif "soundcloud" in reply:
+            platform = "soundcloud"
+            plat_title = "SoundCloud"
+        elif "nhaccuatui" in reply:
+            platform = "nhaccuatui"
+            plat_title = "NhacCuaTui"
+        else:
+            platform = "youtube"
+            plat_title = "YouTube"
+
+        # Nếu người dùng muốn ghi nhớ làm mặc định
+        set_default_msg = ""
+        if any(w in reply for w in ["mặc định", "luôn luôn", "lần sau", "mọi lần"]):
+            alex_config.set_default_music_platform(platform)
+            set_default_msg = f" Và Alex đã lưu {plat_title} làm nền tảng mặc định cho các lần sau."
+
+        res = alex_actions.play_media_on_platform(query, platform=platform)
+        speech_text = f"Đang mở {query} trên {plat_title}.{set_default_msg}"
+
+        return {
+            "type": "app",
+            "title": f"{plat_title}: {query.title()}",
+            "speech": speech_text,
+            "hud_sub": f"Bài hát: {query}"
+        }
+
+    return {"type": "app", "title": "Thực thi", "speech": "Đang xử lý yêu cầu của bạn.", "hud_sub": ""}

@@ -208,6 +208,84 @@ def search_google_or_youtube(query, target="google"):
         webbrowser.open(url)
         return f"Đang tìm kiếm {query} trên Google."
 
+def play_media_on_platform(query, platform="youtube"):
+    """
+    Phát bài hát / nhạc trên nền tảng được chọn:
+    - 'youtube': Mở trang kết quả tìm kiếm và phát trên YouTube
+    - 'spotify': Mở trang tìm kiếm trên Spotify Web Player
+    - 'zingmp3' / 'zing': Tìm kiếm và phát trên Zing MP3
+    - 'soundcloud': Tìm kiếm trên SoundCloud
+    - 'nhaccuatui': Tìm kiếm trên NhacCuaTui
+    """
+    if not query:
+        query = "nhạc hay tuyển chọn"
+
+    encoded = urllib.parse.quote(query)
+    plat = platform.lower().strip() if platform else "youtube"
+
+    if "spotify" in plat:
+        spotify_web_url = f"https://open.spotify.com/search/{encoded}"
+        try:
+            webbrowser.open(spotify_web_url)
+            return f"Đang mở bài hát {query} trên Spotify."
+        except Exception:
+            return f"Không thể mở Spotify lúc này."
+
+    elif "zing" in plat:
+        zing_url = f"https://zingmp3.vn/tim-kiem?q={encoded}"
+        webbrowser.open(zing_url)
+        return f"Đang mở bài hát {query} trên Zing MP3."
+
+    elif "soundcloud" in plat:
+        sc_url = f"https://soundcloud.com/search?q={encoded}"
+        webbrowser.open(sc_url)
+        return f"Đang tìm kiếm {query} trên SoundCloud."
+
+    elif "nhaccuatui" in plat:
+        nct_url = f"https://www.nhaccuatui.com/tim-kiem?q={encoded}"
+        webbrowser.open(nct_url)
+        return f"Đang tìm kiếm {query} trên NhacCuaTui."
+
+    else:
+        yt_url = f"https://www.youtube.com/results?search_query={encoded}"
+        webbrowser.open(yt_url)
+        return f"Đang tìm kiếm {query} trên YouTube."
+
+# Virtual key codes cho Media keys trên Windows API
+VK_MEDIA_NEXT_TRACK = 0xB0
+VK_MEDIA_PREV_TRACK = 0xB1
+VK_MEDIA_STOP = 0xB2
+VK_MEDIA_PLAY_PAUSE = 0xB3
+
+def media_control(action="play_pause"):
+    """
+    Điều khiển trình phát nhạc toàn hệ thống (Spotify, YouTube, Windows Media Player)
+    - 'play_pause': Tạm dừng / Tiếp tục phát
+    - 'next': Chuyển sang bài tiếp theo
+    - 'prev': Quay lại bài trước
+    - 'stop': Dừng hẳn phát nhạc
+    """
+    try:
+        if action in ["play_pause", "pause", "resume", "play"]:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PLAY_PAUSE, 0, 2, 0)
+            return "Đã tạm dừng hoặc tiếp tục phát nhạc."
+        elif action in ["next", "chuyen_bai", "bai_sau"]:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_NEXT_TRACK, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_NEXT_TRACK, 0, 2, 0)
+            return "Đã chuyển sang bài hát tiếp theo."
+        elif action in ["prev", "previous", "bai_truoc"]:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PREV_TRACK, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_PREV_TRACK, 0, 2, 0)
+            return "Đã quay lại bài hát trước."
+        elif action in ["stop", "dung"]:
+            ctypes.windll.user32.keybd_event(VK_MEDIA_STOP, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(VK_MEDIA_STOP, 0, 2, 0)
+            return "Đã dừng phát nhạc."
+    except Exception as e:
+        return f"Lỗi điều khiển phát nhạc: {e}"
+    return "Không rõ lệnh điều khiển nhạc."
+
 # -------------------------------------------------------------
 # 3. GÕ VĂN BẢN BẰNG GIỌNG NÓI (VOICE DICTATION)
 # -------------------------------------------------------------
