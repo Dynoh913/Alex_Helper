@@ -3,13 +3,18 @@ import sys
 import re
 import time
 import shutil
+import datetime
+import webbrowser
+import urllib.parse
 import collections
 import threading
 import audioop
 import subprocess
 import winsound
+import ctypes
 import numpy as np
 import pyaudio
+import requests
 import speech_recognition as sr
 from gtts import gTTS
 import pygame
@@ -47,9 +52,11 @@ def get_antigravity_executable():
     return "agy"
 
 AGY_PATH = get_antigravity_executable()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
-# Ngưỡng kích hoạt mô hình âm học Wake Word On-device (0.28 để nhận diện nhạy giọng Việt)
-WAKE_THRESHOLD = 0.28
+# Ngưỡng kích hoạt mô hình Wake Word On-device (0.45 để cân bằng độ nhạy và chống kích hoạt nhầm)
+WAKE_THRESHOLD = 0.45
+HIGH_CONFIDENCE_THRESHOLD = 0.55
 
 # Regex nhận diện và loại bỏ từ chốt câu "over"
 OVER_TERMINATION_PATTERN = re.compile(
@@ -75,10 +82,10 @@ def strip_over_termination(text):
     return text.strip(), False
 
 def speak(text):
-    """Phát âm giọng nói tiếng Việt tự nhiên (Thread-safe, không xung đột file tạm)"""
+    """Phát âm giọng nói tiếng Việt tự nhiên (Thread-safe, đợi loa dứt hẳn)"""
     if not text:
         return
-    print(f" [ALEX NÓI]: {text}")
+    print(f" 🗣️ [ALEX NÓI]: {text}")
     temp_file = os.path.join(BASE_DIR, f"temp_{int(time.time() * 1000)}.mp3")
     try:
         tts = gTTS(text=text, lang="vi", slow=False)
@@ -89,8 +96,10 @@ def speak(text):
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(10)
         pygame.mixer.music.unload()
+        # Chờ thêm 0.3s sau khi phát xong để chống dội âm vào micro
+        time.sleep(0.3)
     except Exception as e:
-        print(f" [LỖI PHÁT ÂM]: {e}")
+        print(f" ⚠️ [LỖI PHÁT ÂM]: {e}")
     finally:
         try:
             if os.path.exists(temp_file):
@@ -118,11 +127,99 @@ def play_beep(tone_type):
     except Exception:
         pass
 
+def get_battery_info():
+    """Lấy thông tin pin hệ thống Windows qua Windows API native"""
+    try:
+        class SPS(ctypes.Structure):
+            _fields_ = [
+                ('AC', ctypes.c_byte),
+                ('Flag', ctypes.c_byte),
+                ('Percent', ctypes.c_byte),
+                ('Status', ctypes.c_byte),
+                ('LifeTime', ctypes.c_ulong),
+                ('FullLifeTime', ctypes.c_ulong)
+            ]
+        s = SPS()
+        ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(s))
+        if s.Percent == 255:
+            return "Máy tính không có pin hoặc không xác định được trạng thái pin."
+        ac_str = "đang cắm sạc nguồn" if s.AC == 1 else "đang sử dụng nguồn pin"
+        return f"Pin máy tính hiện tại còn {s.Percent}%, {ac_str}."
+    except Exception as e:
+        return f"Không thể kiểm tra pin lúc này ({e})."
+
+def get_date_time_info():
+    """Trả về ngày giờ hiện tại bằng tiếng Việt chuẩn"""
+    now = datetime.datetime.now()
+    weekdays = ["thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ Nhật"]
+    weekday_str = weekdays[now.weekday()]
+    return f"Bây giờ là {now.hour} giờ {now.minute:02d} phút, {weekday_str}, ngày {now.day} tháng {now.month} năm {now.year}."
+
+def ask_gemini_ai(prompt):
+    """
+    Truy vấn câu hỏi trực tiếp qua Gemini API siêu nhanh (~1 giây, phản hồi bằng giọng nói).
+    Không mở cửa sổ dòng lệnh terminal!
+    """
+    if not GEMINI_API_KEY:
+        return None
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
+    system_instruction = (
+        "Bạn là Alex, một trợ lý ảo thông minh bằng tiếng Việt trên Windows. "
+        "Hãy trả lời người dùng một cách thân thiện, chính xác, cực kỳ ngắn gọn và súc tích (1 đến 2 câu ngắn) "
+        "để phát âm rõ ràng qua loa giọng nói, không dùng ký tự Markdown phức tạp."
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "systemInstruction": {"parts": [{"text": system_instruction}]}
+    }
+
+    try:
+        resp = requests.post(url, json=payload, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                text = re.sub(r'[\*\#\_\[\]]', '', text).strip()
+                return text
+        else:
+            # Dự phòng sang model flash-latest
+            url_fallback = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+            resp_fallback = requests.post(url_fallback, json=payload, timeout=8)
+            if resp_fallback.status_code == 200:
+                data = resp_fallback.json()
+                text = data.get("candidates", [])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                text = re.sub(r'[\*\#\_\[\]]', '', text).strip()
+                return text
+    except Exception as e:
+        print(f" ⚠️ [GEMINI API ERROR]: {e}")
+    return None
+
+def ask_antigravity_headless(prompt):
+    """Dự phòng: Chạy agy -p (print mode) ngầm không bật cửa sổ terminal"""
+    try:
+        res = subprocess.run(
+            [AGY_PATH, "-p", f"Trả lời cực kỳ ngắn gọn 1 câu tiếng Việt: {prompt}"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        output = res.stdout.strip()
+        lines = [line.strip() for line in output.splitlines() if line.strip() and not line.startswith("Hey,") and "───" not in line]
+        if lines:
+            return lines[-1]
+    except Exception:
+        pass
+    return None
+
 def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frames=None):
     """
     Thu âm tương tác thông minh:
-    - Tự động hiệu chỉnh ngưỡng năng lượng âm thanh theo môi trường thực tế (Adaptive Noise Floor)
-    - Tự động ngắt khi im lặng 1.2s sau khi nói
+    - Tự động đo độ ồn phòng (Adaptive Noise Floor)
+    - Tự động ngắt khi phát hiện im lặng 1.2s sau khi nói
     - Hỗ trợ chốt lệnh bằng: chữ 'OVER', phím [Space], [Enter], hoặc bấm lại [Ctrl+Alt+Space]
     - Hỗ trợ hủy bằng: phím [Esc]
     """
@@ -137,13 +234,13 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frame
     p = pyaudio.PyAudio()
     stream = p.open(format=pyaudio.paInt16, channels=1, rate=RATE, input=True, frames_per_buffer=CHUNK)
 
-    # Hiệu chỉnh độ ồn nền trong 0.2s đầu tiên để đặt ngưỡng kích hoạt nhạy chính xác
+    # Đo độ ồn phòng trong 0.2s đầu tiên để thiết lập ngưỡng năng lượng chính xác
     ambient_samples = []
     for _ in range(3):
         chunk_data = stream.read(CHUNK, exception_on_overflow=False)
         ambient_samples.append(audioop.rms(chunk_data, 2))
     ambient_rms = int(sum(ambient_samples) / len(ambient_samples)) if ambient_samples else 100
-    energy_threshold = max(180, int(ambient_rms * 1.5))
+    energy_threshold = max(200, int(ambient_rms * 1.6))
 
     frames = list(initial_frames) if initial_frames else []
     start_time = time.time()
@@ -151,8 +248,8 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frame
     has_spoken = len(frames) > 0
 
     print("\n" + "=" * 65)
-    print(" [MICRO ĐANG BẬT] Hãy nói yêu cầu của bạn...")
-    print(f" (Độ ồn nền: {ambient_rms} | Ngưỡng nhạy: {energy_threshold})")
+    print(" 🎙️ [MICRO ĐANG BẬT] Hãy nói yêu cầu của bạn...")
+    print(f" (Độ ồn nền: {ambient_rms} | Ngưỡng kích hoạt: {energy_threshold})")
     print(" 💡 MẸO: Nói 'OVER' hoặc bấm [SPACE] / [ENTER] để gửi lệnh ngay.")
     print(" 💡 Bấm [ESC] để hủy bỏ.")
     print("=" * 65)
@@ -160,12 +257,12 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frame
     try:
         while True:
             if cancel_recording_event.is_set():
-                print("\n [ĐÃ HỦY]: Bạn đã bấm ESC để hủy lệnh.")
+                print("\n 🚫 [ĐÃ HỦY]: Bạn đã bấm ESC để hủy lệnh.")
                 play_beep("cancel")
                 return None
 
             if stop_recording_event.is_set():
-                print("\n [CHỐT LỆNH TỨC THÌ]: Đã nhận phím bấm dừng thu âm!")
+                print("\n ⏹️ [CHỐT LỆNH TỨC THÌ]: Nhận phím bấm dừng thu âm!")
                 play_beep("stop")
                 break
 
@@ -178,11 +275,11 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frame
                 has_spoken = True
                 last_sound_time = now
             elif has_spoken and (now - last_sound_time > silence_timeout):
-                print("\n [TỰ ĐỘNG NGẮT]: Đã phát hiện khoảng lặng (bạn đã dứt câu).")
+                print("\n 🛑 [TỰ ĐỘNG NGẮT]: Đã phát hiện dứt câu.")
                 break
 
             if now - start_time > max_duration:
-                print("\n [HẾT GIỜ]: Đã đạt giới hạn thời gian thu âm tối đa.")
+                print("\n ⏱️ [HẾT GIỜ]: Đã đạt giới hạn thời gian thu âm tối đa.")
                 break
     finally:
         is_recording = False
@@ -198,63 +295,171 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frame
         return None
     return sr.AudioData(raw_audio, RATE, 2)
 
-def execute_antigravity(command):
-    """Kích hoạt Antigravity CLI thực hiện lệnh trong cửa sổ mới độc lập"""
-    command, has_over = strip_over_termination(command)
+def execute_command_smart_router(command):
+    """
+    BỘ ĐIỀU PHỐI LỆNH THÔNG MINH (SMART ROUTER):
+    1. Tác vụ nhanh trên Windows (Mở web, phần mềm, giờ, pin, âm lượng) -> Xử lý tức thì 0s, không mở Antigravity.
+    2. Câu hỏi thông tin / Hỏi đáp AI -> Hỏi Gemini AI siêu nhanh (~1s), trả lời bằng giọng nói và in ra màn hình.
+    3. Lập trình / Tác vụ kỹ thuật -> CHỈ mở cửa sổ Antigravity CLI khi người dùng yêu cầu rõ ràng.
+    """
+    command_clean, has_over = strip_over_termination(command)
     if has_over:
-        print(" [TỪ KHÓA CHỐT]: Phát hiện từ 'OVER' chốt câu!")
+        print(" 📌 [TỪ KHÓA CHỐT]: Phát hiện từ 'OVER' chốt câu!")
         play_beep("stop")
 
-    if not command:
-        speak("Alex chưa nghe rõ nội dung câu lệnh cụ thể.")
+    if not command_clean:
+        speak("Alex chưa nghe rõ nội dung câu lệnh.")
         return
 
+    cmd_lower = command_clean.lower().strip()
     print(f"\n" + "=" * 65)
-    print(f" [KÍCH HOẠT ANTIGRAVITY]: \"{command}\"")
-    print(f" [ĐƯỜNG DẪN CLI]: {AGY_PATH}")
+    print(f" ⚙️ [ĐANG XỬ LÝ LỆNH]: \"{command_clean}\"")
     print("=" * 65)
-    
-    speak(f"Đã nhận lệnh: {command}. Đang mở Antigravity CLI.")
-    time.sleep(0.3)
 
-    try:
-        # Mở cửa sổ riêng biệt cho Antigravity CLI hiển thị trực quan trước mặt người dùng
-        agy_cmd = f'"{AGY_PATH}" --prompt-interactive "{command}"'
-        subprocess.Popen(f'start "Antigravity CLI - Alex" cmd.exe /k {agy_cmd}', shell=True)
-        print(" [THÀNH CÔNG]: Đã mở cửa sổ Antigravity CLI cho bạn!")
-    except FileNotFoundError:
-        print(f" [LỖI]: Không tìm thấy Antigravity CLI tại '{AGY_PATH}'.")
-        speak("Không tìm thấy Antigravity CLI trên máy tính của bạn.")
-    except Exception as e:
-        print(f" [LỖI CHẠY AGY]: {e}")
-        speak("Có lỗi khi mở Antigravity CLI.")
+    # -------------------------------------------------------------
+    # NHÓM 1: TÁC VỤ HỆ THỐNG CỤC BỘ (LOCAL FAST ACTIONS) - PHẢN HỒI TỨC THÌ
+    # -------------------------------------------------------------
+
+    # 1.1 Xem giờ / Ngày tháng
+    if any(k in cmd_lower for k in ["mấy giờ", "thời gian", "bây giờ là mấy giờ", "ngày mấy", "ngày bao nhiêu", "hôm nay thứ mấy"]):
+        info = get_date_time_info()
+        speak(info)
+        return
+
+    # 1.2 Kiểm tra pin
+    if any(k in cmd_lower for k in ["kiểm tra pin", "pin còn bao nhiêu", "mức pin", "thời lượng pin", "pin máy tính"]):
+        info = get_battery_info()
+        speak(info)
+        return
+
+    # 1.3 Điều khiển âm lượng
+    if any(k in cmd_lower for k in ["tăng âm lượng", "tăng tiếng", "bật to lên", "cho to lên"]):
+        for _ in range(5):
+            keyboard.send("volume up")
+        speak("Đã tăng âm lượng.")
+        return
+
+    if any(k in cmd_lower for k in ["giảm âm lượng", "giảm tiếng", "cho nhỏ lại", "nhỏ bớt"]):
+        for _ in range(5):
+            keyboard.send("volume down")
+        speak("Đã giảm âm lượng.")
+        return
+
+    if any(k in cmd_lower for k in ["tắt tiếng", "im lặng", "mute", "bật lại tiếng", "bật tiếng"]):
+        keyboard.send("volume mute")
+        speak("Đã chuyển trạng thái âm thanh.")
+        return
+
+    # 1.4 Mở các trang web phổ biến
+    if any(k in cmd_lower for k in ["mở youtube", "bật youtube", "vào youtube"]):
+        webbrowser.open("https://www.youtube.com")
+        speak("Đã mở YouTube cho bạn.")
+        return
+
+    if any(k in cmd_lower for k in ["mở facebook", "bật facebook", "vào facebook"]):
+        webbrowser.open("https://www.facebook.com")
+        speak("Đã mở Facebook cho bạn.")
+        return
+
+    if any(k in cmd_lower for k in ["mở google", "bật google", "vào google"]):
+        webbrowser.open("https://www.google.com")
+        speak("Đã mở trang Google.")
+        return
+
+    # 1.5 Mở ứng dụng Windows
+    if any(k in cmd_lower for k in ["mở chrome", "bật chrome", "mở trình duyệt"]):
+        os.system("start chrome")
+        speak("Đã mở trình duyệt Chrome.")
+        return
+
+    if any(k in cmd_lower for k in ["mở notepad", "bật notepad", "mở ghi chú"]):
+        os.system("start notepad")
+        speak("Đã mở Notepad.")
+        return
+
+    if any(k in cmd_lower for k in ["mở máy tính", "calculator", "máy tính bỏ túi"]):
+        os.system("start calc")
+        speak("Đã mở ứng dụng máy tính.")
+        return
+
+    if any(k in cmd_lower for k in ["mở thư mục", "mở explorer", "mở ổ đĩa", "quản lý tệp"]):
+        os.system("start explorer")
+        speak("Đã mở quản lý tệp Windows.")
+        return
+
+    # 1.6 Khóa máy tính
+    if any(k in cmd_lower for k in ["khóa máy", "khóa màn hình", "lock máy"]):
+        speak("Đã khóa máy tính.")
+        time.sleep(0.5)
+        ctypes.windll.user32.LockWorkStation()
+        return
+
+    # 1.7 Tìm kiếm web trên Google
+    search_match = re.match(r"^(?:tìm kiếm|tra cứu|tìm trên mạng|google)\s+(?:cho tôi|cho mình|về|)?\s*(.+)$", cmd_lower)
+    if search_match:
+        query = search_match.group(1).strip()
+        if query:
+            webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+            speak(f"Đang tìm kiếm {query} trên Google.")
+            return
+
+    # -------------------------------------------------------------
+    # NHÓM 2: LẬP TRÌNH & KỸ THUẬT VỚI ANTIGRAVITY (CHỈ KHI YÊU CẦU CỤ THỂ)
+    # -------------------------------------------------------------
+    antigravity_triggers = [
+        "antigravity", "mở agy", "bật agy", "chạy agy",
+        "mở cli", "lập trình", "viết code", "sửa code", "fix bug",
+        "tạo dự án", "refactor code", "viết script"
+    ]
+    if any(trigger in cmd_lower for trigger in antigravity_triggers):
+        print(f"\n [KÍCH HOẠT ANTIGRAVITY CLI]: {command_clean}")
+        speak("Đang mở Antigravity CLI để hỗ trợ bạn lập trình.")
+        try:
+            agy_cmd = f'"{AGY_PATH}" -i "{command_clean}"'
+            subprocess.Popen(f'start "Antigravity CLI - Alex" cmd.exe /k {agy_cmd}', shell=True)
+            print(" [THÀNH CÔNG]: Đã mở cửa sổ Antigravity CLI!")
+        except Exception as e:
+            print(f" [LỖI MỞ AGY]: {e}")
+            speak("Có lỗi khi khởi chạy Antigravity CLI.")
+        return
+
+    # -------------------------------------------------------------
+    # NHÓM 3: HỎI ĐÁP THÔNG TIN VỚI GEMINI AI (SIÊU NHANH, KHÔNG MỞ TERMINAL)
+    # -------------------------------------------------------------
+    print(" 🤖 [AI CHAT]: Đang truy vấn trí tuệ nhân tạo Gemini...")
+    ai_answer = ask_gemini_ai(command_clean)
+    if not ai_answer:
+        # Fallback headless agy nếu không có internet hoặc API lỗi
+        ai_answer = ask_antigravity_headless(command_clean)
+
+    if ai_answer:
+        print(f" 💡 [CÂU TRẢ LỜI CỦA ALEX]:\n{ai_answer}\n")
+        speak(ai_answer)
+    else:
+        speak("Alex đã ghi nhận yêu cầu của bạn nhưng hiện tại chưa nhận được phản hồi từ AI.")
 
 def handle_user_interaction(recognizer, initial_frames=None):
-    """Quản lý phiên thu âm tương tác và dịch giọng nói sang văn bản"""
+    """Quản lý phiên thu âm tương tác và chuyển hóa giọng nói thành hành động"""
     audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frames=initial_frames)
     if not audio_data:
-        print(" [THÔNG BÁO]: Không nhận được âm thanh nào.")
+        print(" ℹ️ [THÔNG BÁO]: Không nhận được âm thanh nào.")
         return
 
-    print(" [ĐANG DỊCH]: Đang xử lý giọng nói của bạn...")
+    print(" 🔄 [ĐANG DỊCH]: Đang phân tích giọng nói của bạn...")
     try:
         command = recognizer.recognize_google(audio_data, language="vi-VN")
-        print(f" [NHẬN DIỆN THÔ]: \"{command}\"")
-        
-        command, has_over = strip_over_termination(command)
-        if has_over:
-            print(" [TỪ KHÓA CHỐT]: Đã phát hiện từ 'OVER' chốt câu!")
-            play_beep("stop")
-            
-        print(f" [LỆNH THỰC THI]: \"{command}\"")
+        print(f" 🎯 [BẠN NÓI]: \"{command}\"")
         play_beep("success")
-        execute_antigravity(command)
+        
+        # Thực thi lệnh qua Smart Router
+        execute_command_smart_router(command)
+        
     except sr.UnknownValueError:
-        print(" [KHÔNG RÕ]: Không nhận diện được âm thanh rõ ràng.")
+        print(" ❓ [KHÔNG RÕ]: Không nhận diện được âm thanh rõ ràng.")
         play_beep("error")
-        speak("Alex chưa nghe rõ, bạn hãy thử lại nhé.")
+        speak("Alex chưa nghe rõ, bạn có thể nói lại được không?")
     except Exception as e:
-        print(f" [LỖI DỊCH]: {e}")
+        print(f" ⚠️ [LỖI DỊCH]: {e}")
 
 def on_hotkey_pressed(recognizer):
     """Xử lý khi bấm phím tắt toàn cục Ctrl + Alt + Space"""
@@ -264,18 +469,20 @@ def on_hotkey_pressed(recognizer):
         return
 
     if is_processing:
-        print(" [BẬN]: Alex đang thực hiện một lệnh khác, vui lòng chờ...")
+        print(" ⏳ [BẬN]: Alex đang thực hiện một lệnh khác, vui lòng chờ trong giây lát...")
         return
 
     with lock:
         is_processing = True
 
     try:
-        print(f"\n [HOTKEY KÍCH HOẠT]: Đã nhấn {GLOBAL_HOTKEY.upper()}!")
+        print(f"\n ⌨️ [HOTKEY KÍCH HOẠT]: Đã nhấn {GLOBAL_HOTKEY.upper()}!")
         play_beep("ready")
         speak("Dạ, Alex đang nghe!")
         handle_user_interaction(recognizer)
     finally:
+        # Thời gian cooldown để loa tắt hẳn và micro ổn định lại
+        time.sleep(1.0)
         with lock:
             is_processing = False
 
@@ -294,17 +501,18 @@ def on_global_key_event(e):
 def continuous_wake_word_loop(recognizer):
     """
     Vòng lặp lắng nghe liên tục bằng mô hình AI On-device (openWakeWord):
-    - KHÔNG CÓ BOUNDARY ISSUE: Sử dụng luồng dữ liệu 80ms liên tục
-    - NHẠY NHƯ SIRI/GOOGLE ASSISTANT: Phản xạ âm kép tức thì trên CPU
+    - ĐỘ TIN CẬY CAO: Ngưỡng chuẩn 0.45 + Xác thực 2 khung hình liên tiếp để triệt tiêu kích hoạt nhầm
+    - RESET STATE: Xóa sạch bộ nhớ đệm âm học sau mỗi lần kích hoạt
+    - COOLDOWN GUARD: Tuyệt đối không nghe lại khi lệnh trước chưa hoàn thành
     """
     global is_processing, is_recording
     
-    print(" [ALEX AI]: Đang nạp mô hình âm học On-device Neural Wake Word...")
+    print(" 🚀 [ALEX AI]: Đang nạp mô hình âm học On-device Neural Wake Word...")
     try:
         owwModel = Model(wakeword_models=["alexa"], inference_framework="onnx")
-        print(" [ALEX AI]: Mô hình On-Device đã sẵn sàng! Độ trễ phản hồi ~0.15s.")
+        print(" ✅ [ALEX AI]: Mô hình On-Device đã sẵn sàng! Độ trễ phản hồi ~0.15s.")
     except Exception as e:
-        print(f" [LỖI TẢI MÔ HÌNH]: {e}")
+        print(f" ❌ [LỖI TẢI MÔ HÌNH]: {e}")
         return
 
     CHUNK_SAMPLES = 1280  # 80ms tại 16000Hz (chuẩn mô hình openWakeWord)
@@ -313,6 +521,7 @@ def continuous_wake_word_loop(recognizer):
     ring_buffer = collections.deque(maxlen=PRE_ROLL_CHUNKS)
 
     p = pyaudio.PyAudio()
+    consecutive_hits = 0
     
     while True:
         if is_processing or is_recording:
@@ -325,7 +534,19 @@ def continuous_wake_word_loop(recognizer):
             time.sleep(1)
             continue
 
-        print(" [ALEX ONLINE]: Đang lắng nghe liên tục 'Hey Alex'...")
+        # Xóa sạch bộ nhớ đệm trước khi mở lại micro
+        owwModel.reset()
+        ring_buffer.clear()
+        consecutive_hits = 0
+        
+        # Đọc bỏ qua 2 chunk đầu tiên để tránh xung kích âm thanh khi mở stream
+        try:
+            for _ in range(2):
+                stream.read(CHUNK_SAMPLES, exception_on_overflow=False)
+        except Exception:
+            pass
+
+        print(" 🟢 [ALEX ONLINE]: Đang lắng nghe 'Hey Alex' hoặc 'Alex'...")
 
         try:
             while not (is_processing or is_recording):
@@ -336,7 +557,20 @@ def continuous_wake_word_loop(recognizer):
                 prediction = owwModel.predict(audio_np)
                 score = prediction.get("alexa", 0.0)
 
-                if score >= WAKE_THRESHOLD:
+                # Kiểm tra điều kiện kích hoạt:
+                # 1. Hoặc đạt độ tin cậy rất cao (>= 0.55) trong 1 frame
+                # 2. Hoặc đạt mức >= 0.42 trong 2 frame liên tiếp (~160ms)
+                is_wake = False
+                if score >= HIGH_CONFIDENCE_THRESHOLD:
+                    is_wake = True
+                elif score >= WAKE_THRESHOLD:
+                    consecutive_hits += 1
+                    if consecutive_hits >= 2:
+                        is_wake = True
+                else:
+                    consecutive_hits = 0
+
+                if is_wake:
                     print(f"\n ⚡ [WAKE WORD DETECTED]: Phát hiện 'ALEX'! (Độ tin cậy: {score:.2f})")
                     play_beep("wake")
                     
@@ -349,10 +583,20 @@ def continuous_wake_word_loop(recognizer):
                     except Exception:
                         pass
 
+                    # Reset mô hình ngay lập tức để không lưu vết âm thanh
+                    owwModel.reset()
+                    pre_roll_data = list(ring_buffer)
+                    ring_buffer.clear()
+                    consecutive_hits = 0
+
                     try:
                         speak("Dạ, Alex đang nghe!")
                         handle_user_interaction(recognizer)
                     finally:
+                        # Cooldown 1.2s để âm thanh loa phát xong tiêu tán hoàn toàn trong phòng
+                        time.sleep(1.2)
+                        owwModel.reset()
+                        ring_buffer.clear()
                         with lock:
                             is_processing = False
                     
@@ -366,25 +610,26 @@ def continuous_wake_word_loop(recognizer):
                 stream.close()
             except Exception:
                 pass
-            time.sleep(0.2)
+            time.sleep(0.3)
 
 def main():
     print("""
   ╔════════════════════════════════════════════════════════════════╗
-  ║       TRỢ LÝ ẢO ALEX V3.5 (ON-DEVICE NEURAL WAKE WORD)         ║
+  ║       TRỢ LÝ ẢO ALEX V4.0 (SMART ROUTER & ON-DEVICE AI)        ║
   ╚════════════════════════════════════════════════════════════════╝
-  [*] CÔNG NGHỆ:
-      - AI On-Device Neural Wake Word (Phản xạ tức thì ~0.15s).
-      - Continuous Audio Streaming: XÓA BỎ HOÀN TOÀN BOUNDARY ISSUE.
-      - Chạy 100% Offline trên CPU cho phần bắt từ khóa 'Hey Alex'.
-  [*] 2 CÁCH KÍCH HOẠT:
-      1. Nói: 'Hey Alex' hoặc 'Alex' (Phản xạ tức thì)
+  [*] NÂNG CẤP V4.0:
+      - SMART ROUTER: Mở web, ứng dụng, kiểm tra giờ, pin, âm lượng tức thì.
+      - GEMINI AI VOICE: Trả lời kiến thức bằng giọng nói (~1s), KHÔNG mở CLI.
+      - ANTIGRAVITY DEV: Chỉ mở cửa sổ dòng lệnh khi bạn muốn code/lập trình.
+      - CHỐNG KÍCH HOẠT NHẦM: Dual-frame verification + Auto Model Reset.
+      - CHỐNG LẮNG NGHE ĐÈ: Khóa phiên hoàn toàn cho đến khi lệnh trước kết thúc.
+  [*] 2 CÁCH GỌI ALEX:
+      1. Nói: 'Hey Alex' hoặc 'Alex'
       2. Phím tắt: [ Ctrl + Alt + Space ]
-  [*] CƠ CHẾ CHỐT LỆNH LINH HOẠT:
-      - Tự động ngắt sau 1.2s khi bạn dừng nói.
-      - Hoặc nói chữ 'OVER' ở cuối câu (bộ đàm khi phòng ồn).
-      - Hoặc bấm [Space] / [Enter] để chốt ngay lập tức.
-      - Bấm [Esc] để hủy lệnh.
+  [*] CÁCH CHỐT LỆNH:
+      - Tự động ngắt khi dừng nói 1.2s.
+      - Nói 'OVER' ở cuối câu (phòng ồn).
+      - Bấm [Space] / [Enter] để gửi ngay | Bấm [Esc] để hủy.
   ------------------------------------------------------------------
     """)
 
@@ -411,7 +656,7 @@ def main():
     # Báo hiệu âm thanh và giọng nói khởi động thành công
     try:
         play_beep("success")
-        speak("Trợ lý Alex đã sẵn sàng!")
+        speak("Trợ lý Alex đã sẵn sàng phục vụ bạn!")
     except Exception:
         pass
 

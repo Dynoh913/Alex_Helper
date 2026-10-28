@@ -1,42 +1,43 @@
-# 🎙️ Alex Helper - Antigravity Voice Assistant
+# 🎙️ Alex Helper - Antigravity Voice Assistant (V4.0)
 
-> **Trợ lý ảo điều khiển bằng giọng nói thông minh cho Google Antigravity CLI trên Windows.**  
-> Hỗ trợ đánh thức tức thì bằng AI On-Device (*"Hey Alex"*), Phím tắt toàn cục (*Ctrl + Alt + Space*), cơ chế chốt lệnh kiểu bộ đàm (*"OVER"*), và phản hồi giọng nói tiếng Việt tự nhiên.
+> **Trợ lý ảo điều khiển bằng giọng nói thông minh cho Windows & Google Antigravity CLI.**  
+> Hỗ trợ đánh thức tức thì bằng AI On-Device (*"Hey Alex"*), Phím tắt toàn cục (*Ctrl + Alt + Space*), cơ chế chốt lệnh kiểu bộ đàm (*"OVER"*), điều phối lệnh thông minh (Smart Router), trả lời kiến thức bằng AI siêu nhanh không mở cửa sổ, và phản hồi giọng nói tiếng Việt tự nhiên.
 
 ---
 
-## ✨ Tính Năng Nổi Bật
+## ✨ Điểm Nổi Bật Trên Phiên Bản V4.0
+
+- 🧠 **Điều Phối Lệnh Thông Minh (Smart Intent Router):**
+  - **Tác vụ Windows nhanh (0s latency):** Mở YouTube, Google, Facebook, Chrome, Notepad, máy tính bỏ túi, kiểm tra giờ/ngày tháng, kiểm tra phần trăm pin laptop, tăng/giảm âm lượng, khóa máy tính... Tất cả xử lý tức thì, **tuyệt đối không bật cửa sổ Antigravity phiền phức**.
+  - **Hỏi đáp kiến thức với Gemini AI:** Các câu hỏi thông thường, thời tiết, dịch thuật, giải thích khái niệm... được AI trả lời trực tiếp bằng giọng nói trong $\sim 1\text{s}$, không mở bất kỳ cửa sổ dòng lệnh nào!
+  - **Chế độ Lập trình Antigravity (Chuyên sâu):** **CHỈ** mở cửa sổ tương tác Antigravity CLI khi bạn thực sự yêu cầu lập trình, viết code, sửa lỗi (bug), tạo dự án hoặc nói rõ *"mở Antigravity"*.
+
+- 🛡️ **Khắc Phục Hoàn Toàn Lỗi Lắng Nghe Đè (Anti-Overlap) & Kích Hoạt Nhầm (Anti-False Wake):**
+  - **Khóa phiên tuyệt đối:** Không bao giờ lắng nghe lại khi lệnh trước đó chưa hoàn thành hoặc khi loa máy tính đang phát lời thoại.
+  - **Âm học On-Device chuẩn xác:** Sử dụng mô hình `openWakeWord` với thuật toán xác thực khung đôi (Dual-frame confidence verification) + tự động dọn sạch bộ nhớ đệm âm học (`Model.reset()`) sau mỗi lần kích hoạt, triệt tiêu kích hoạt nhầm do tiếng ồn môi trường.
+  - **Đệm tản âm (Acoustic Cooldown):** Ngăn chặn micro tự thu âm thanh từ loa ngoài máy tính.
 
 - ⚡ **On-Device Neural Wake Word (Phản xạ $\sim 0.15\text{s}$ như Siri/Google Assistant):**
-  - Chạy mô hình mạng nơ-ron âm học cục bộ (`openWakeWord` + `ONNX Runtime`) trực tiếp trên CPU laptop.
-  - **Không có độ trễ đám mây**, hoàn toàn Offline khi chờ từ khóa *"Hey Alex"*.
-  - **Xóa bỏ triệt để Boundary Issue:** Thu luồng âm thanh liên tục $80\text{ms}$ (Continuous Streaming), không bao giờ bị cắt xẻ đôi từ khóa.
+  - Chạy mô hình mạng nơ-ron cục bộ trực tiếp trên CPU laptop, hoàn toàn Offline khi chờ từ khóa *"Hey Alex"*.
+  - **Không có Boundary Issue:** Thu luồng âm thanh liên tục $80\text{ms}$ (Continuous Streaming).
 
 - ⌨️ **Phím tắt toàn cục (Global Hotkey - `Ctrl + Alt + Space`):**
-  - Kích hoạt micro ngay lập tức từ bất kỳ cửa sổ nào trên Windows (VS Code, trình duyệt, Word, Excel...).
+  - Kích hoạt micro ngay lập tức từ bất kỳ cửa sổ nào trên Windows.
 
 - 📻 **Cơ chế chốt câu linh hoạt (Chống ồn tuyệt đối):**
   - **Tự động ngắt:** Sau $1.2\text{ giây}$ khi bạn ngừng nói.
   - **Từ khóa "OVER":** Nói chữ *"over"* ở cuối câu để chốt lệnh kiểu bộ đàm khi phòng ồn ào.
-  - **Phím chốt lệnh:** Bấm **`Space`** hoặc **`Enter`** (hoặc bấm lại `Ctrl + Alt + Space`) để ngắt thu âm và gửi lệnh tức thì.
-  - **Phím hủy:** Bấm **`Esc`** để hủy bỏ nếu đổi ý.
-
-- 🗣️ **Phản hồi bằng giọng nói tiếng Việt (TTS):**
-  - Phản hồi trạng thái, chào mừng và thông báo khi bắt đầu / hoàn thành nhiệm vụ.
-
-- 🤖 **Tích hợp sâu Google Antigravity CLI (`agy`):**
-  - Tự động chuyển câu lệnh giọng nói thành prompt và khởi chạy Antigravity CLI để tự động hóa tác vụ, code, sửa lỗi hoặc điều khiển hệ thống.
-
-- 🚀 **Khởi động cùng Windows:**
-  - Tùy chọn chạy ngầm thu nhỏ im lặng mỗi khi bạn bật máy tính.
+  - **Phím chốt lệnh:** Bấm **`Space`** hoặc **`Enter`** để ngắt thu âm và gửi lệnh tức thì.
+  - **Phím hủy:** Bấm **`Esc`** để hủy bỏ lệnh.
 
 ---
 
 ## 🛠️ Yêu Cầu Hệ Thống
 
 1. **Hệ điều hành:** Windows 10 / 11 (64-bit)
-2. **Python:** 3.10 trở lên ([Tải tại python.org](https://www.python.org/) - nhớ tích chọn *Add Python to PATH* khi cài đặt)
-3. **Google Antigravity CLI:** Đã cài đặt `agy`
+2. **Python:** 3.10 trở lên ([Tải tại python.org](https://www.python.org/))
+3. **Google Antigravity CLI:** Đã cài đặt `agy` (tự động nhận diện)
+4. **Gemini API Key (Tùy chọn):** Đặt trong biến môi trường `GEMINI_API_KEY` để kích hoạt hỏi đáp AI siêu tốc.
 
 ---
 
@@ -49,46 +50,35 @@ cd Alex_Helper
 ```
 
 ### Bước 2: Chạy cài đặt tự động
-Nhấp đúp vào file **`install.bat`** (hoặc chạy trong CMD/PowerShell):
+Nhấp đúp vào file **`install.bat`** (hoặc chạy trong terminal):
 ```cmd
 install.bat
 ```
-Script sẽ tự động:
-1. Tạo môi trường ảo Python (`.venv`).
-2. Cài đặt các thư viện cần thiết (`SpeechRecognition`, `pyaudio`, `openwakeword`, `onnxruntime`, `gTTS`, `pygame`, `keyboard`...).
-3. Tải các tệp mô hình âm học ONNX về máy.
-4. Hỏi bạn có muốn kích hoạt tự động chạy cùng Windows hay không.
 
 ---
 
 ## 🚀 Hướng Dẫn Sử Dụng
 
-Khởi chạy bằng cách nhấp đúp vào file **`run.bat`**. Bạn có 2 cách ra lệnh cho Alex:
+Khởi chạy bằng cách nhấp đúp vào file **`run.bat`**.
 
-### Cách 1: Gọi tên bằng giọng nói (*"Hey Alex"*) — Rảnh tay 100%
-- **Nói liền câu:**  
-  > *"Hey Alex, kiểm tra xem máy còn bao nhiêu phần trăm pin"*  
-  > *(Hoặc: "Hey Alex, mở trình duyệt Chrome cho tôi **over**")*
-- **Gọi tên trước, ra lệnh sau:**  
-  1. Nói: *"Hey Alex"*
-  2. Alex đáp: 🗣️ *"Dạ, Alex đang nghe!"*
-  3. Bạn thong thả nói yêu cầu của mình.
+### 1. Các câu lệnh phổ biến (Xử lý tức thì):
+- *"Mấy giờ rồi"* / *"Hôm nay ngày mấy"*
+- *"Kiểm tra pin"* / *"Pin còn bao nhiêu phần trăm"*
+- *"Tăng âm lượng"* / *"Giảm âm lượng"* / *"Tắt tiếng"*
+- *"Mở YouTube"* / *"Mở Facebook"* / *"Mở Google"* / *"Mở Chrome"*
+- *"Mở Notepad"* / *"Mở máy tính"* / *"Mở quản lý tệp"*
+- *"Tìm kiếm công thức làm bánh pizza trên Google"*
+- *"Khóa máy"*
 
-### Cách 2: Dùng phím tắt (`Ctrl + Alt + Space`) — Khi phòng ồn ào
-1. Bấm **`Ctrl + Alt + Space`** ở bất cứ đâu trên Windows.
-2. Alex đáp: 🗣️ *"Dạ, Alex đang nghe!"*
-3. Bạn nói câu lệnh.
-4. Vừa dứt câu, bấm phím **`Enter`** hoặc **`Space`** để chốt gửi lệnh đi ngay lập tức!
+### 2. Các câu hỏi AI (Trả lời bằng giọng nói, không bật cửa sổ):
+- *"Thủ đô của nước Pháp là gì?"*
+- *"Giải thích trí tuệ nhân tạo một cách đơn giản"*
+- *"1 dặm bằng bao nhiêu km?"*
 
----
-
-## ⚙️ Tùy Biến Cấu Hình (Trong `voice_assistant.py`)
-
-| Tham số | Mặc định | Mô tả |
-| :--- | :--- | :--- |
-| `WAKE_THRESHOLD` | `0.42` | Độ nhạy của từ khóa Alex ($0.0 \to 1.0$). Giảm xuống để nhạy hơn, tăng lên nếu muốn lọc tiếng ồn gắt hơn. |
-| `GLOBAL_HOTKEY` | `"ctrl+alt+space"` | Tổ hợp phím kích hoạt toàn cục. |
-| `AGY_PATH` | Tự động dò | Tự động tìm `agy.exe` trên `PATH` hoặc `~/.gemini/bin/agy.exe`. |
+### 3. Kích hoạt Antigravity CLI (Lập trình):
+- *"Mở Antigravity"*
+- *"Lập trình game rắn săn mồi bằng Python"*
+- *"Viết script tự động hóa backup file"*
 
 ---
 
@@ -96,20 +86,12 @@ Khởi chạy bằng cách nhấp đúp vào file **`run.bat`**. Bạn có 2 cá
 
 ```
 Alex_Helper/
-├── voice_assistant.py      # Mã nguồn chính của trợ lý Alex
+├── voice_assistant.py      # Mã nguồn chính của trợ lý Alex V4.0
 ├── download_models.py      # Tải mô hình âm học ONNX openWakeWord
-├── install.bat             # File cài đặt tự động 1-Click
-├── run.bat                 # File khởi chạy trợ lý
-├── setup_startup.bat       # Kích hoạt tự khởi động cùng Windows
-├── remove_startup.bat      # Hủy tự khởi động cùng Windows
+├── install.bat             # Cài đặt tự động 1-click
+├── run.bat                 # Khởi chạy trợ lý Alex
+├── setup_startup.bat       # Đăng ký khởi động cùng Windows
+├── remove_startup.bat      # Gỡ bỏ khởi động cùng Windows
 ├── requirements.txt        # Danh sách thư viện Python
-├── .gitignore              # Bỏ qua môi trường ảo và file rác
 └── README.md               # Tài liệu hướng dẫn sử dụng
 ```
-
----
-
-## 📄 Bản Quyền
-
-Dự án phát triển bởi **Dynoh913** phục vụ mục đích tự động hóa cá nhân và cộng đồng người dùng Google Antigravity.
-Mọi đóng góp (Pull Requests / Issues) đều được chào đón!
