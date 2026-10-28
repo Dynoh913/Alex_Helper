@@ -1,5 +1,11 @@
 import os
 import sys
+
+# Đảm bảo thư mục gốc của Alex luôn nằm đầu sys.path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 import re
 import time
 import shutil
@@ -19,25 +25,6 @@ from openwakeword.model import Model
 import alex_actions
 import alex_brain
 from alex_hud import AlexHUD
-
-# Tắt thông báo chào mừng của pygame
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-
-# Thiết lập UTF-8 cho console Windows
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-
-# Khởi tạo pygame mixer cho TTS
-try:
-    pygame.mixer.init()
-except Exception:
-    pass
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GLOBAL_HOTKEY = "ctrl+alt+space"
 
 # Tự động tìm đường dẫn Antigravity CLI (agy)
@@ -53,8 +40,8 @@ def get_antigravity_executable():
 AGY_PATH = get_antigravity_executable()
 
 # Ngưỡng kích hoạt mô hình Wake Word On-device chuẩn xác
-WAKE_THRESHOLD = 0.45
-HIGH_CONFIDENCE_THRESHOLD = 0.55
+WAKE_THRESHOLD = 0.35
+PEAK_CONFIDENCE_THRESHOLD = 0.48
 
 # Regex nhận diện và loại bỏ từ chốt câu "over"
 OVER_TERMINATION_PATTERN = re.compile(
@@ -130,11 +117,11 @@ def play_beep(tone_type):
     except Exception:
         pass
 
-def record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frames=None):
+def record_audio_interactive(max_duration=15, silence_timeout=1.8, initial_frames=None):
     """
     Thu âm tương tác thông minh kết hợp hiển thị trạng thái lên Floating HUD:
     - Tự động đo độ ồn phòng (Adaptive Noise Floor)
-    - Tự động ngắt khi phát hiện im lặng 1.2s sau khi nói
+    - Tự động ngắt khi phát hiện im lặng 1.8s sau khi nói
     - Hỗ trợ chốt lệnh bằng: từ 'OVER', phím [Space], [Enter], hoặc phím tắt
     - Hỗ trợ hủy bằng: phím [Esc]
     """
@@ -215,7 +202,7 @@ def handle_user_interaction(recognizer, initial_frames=None):
     """Quản lý trọn vẹn luồng tương tác của người dùng và cập nhật giao diện HUD"""
     hud.show("🎙️", "Alex đang nghe...", "Mẹo: Nói 'OVER' hoặc bấm Space để gửi")
     
-    audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.2, initial_frames=initial_frames)
+    audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.8, initial_frames=initial_frames)
     if not audio_data:
         print(" ℹ️ [THÔNG BÁO]: Không nhận được âm thanh nào.")
         hud.hide()
@@ -250,8 +237,7 @@ def handle_user_interaction(recognizer, initial_frames=None):
     except sr.UnknownValueError:
         print(" ❓ [KHÔNG RÕ]: Không nhận diện được âm thanh rõ ràng.")
         play_beep("error")
-        hud.show_error("Alex chưa nghe rõ", "Bạn hãy thử nói lại nhé", auto_hide_ms=2500)
-        speak("Alex chưa nghe rõ, bạn có thể nói lại được không?")
+        hud.show_error("Alex chưa nghe rõ", "Bấm Ctrl+Alt+Space hoặc gọi lại 'Alex'", auto_hide_ms=2000)
     except Exception as e:
         print(f" ⚠️ [LỖI DỊCH]: {e}")
         hud.show_error("Có lỗi xảy ra", str(e), auto_hide_ms=2500)
@@ -315,6 +301,7 @@ def continuous_wake_word_loop(recognizer):
 
     p = pyaudio.PyAudio()
     consecutive_hits = 0
+    recent_scores = collections.deque(maxlen=5)
     
     while True:
         if is_processing or is_recording:
@@ -329,6 +316,7 @@ def continuous_wake_word_loop(recognizer):
 
         owwModel.reset()
         ring_buffer.clear()
+        recent_scores.clear()
         consecutive_hits = 0
         
         try:
@@ -345,21 +333,31 @@ def continuous_wake_word_loop(recognizer):
                 ring_buffer.append(audio_bytes)
                 audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
 
+                rms = audioop.rms(audio_bytes, 2)
                 prediction = owwModel.predict(audio_np)
                 score = prediction.get("alexa", 0.0)
+                recent_scores.append(score)
 
                 is_wake = False
-                if score >= HIGH_CONFIDENCE_THRESHOLD:
-                    is_wake = True
-                elif score >= WAKE_THRESHOLD:
-                    consecutive_hits += 1
-                    if consecutive_hits >= 2:
-                        is_wake = True
+                # Chỉ xét kích hoạt khi có âm lượng thực tế phát ra (tránh xung nhiễu trong phòng im ắng)
+                if rms > 150:
+                    if score >= WAKE_THRESHOLD:
+                        consecutive_hits += 1
+                        if consecutive_hits >= 2:
+                            is_wake = True
+                    else:
+                        consecutive_hits = 0
+
+                    if not is_wake and len(recent_scores) >= 3:
+                        sustained_hits = sum(1 for s in recent_scores if s >= 0.30)
+                        peak_score = max(recent_scores)
+                        if sustained_hits >= 2 and peak_score >= PEAK_CONFIDENCE_THRESHOLD:
+                            is_wake = True
                 else:
                     consecutive_hits = 0
 
                 if is_wake:
-                    print(f"\n ⚡ [WAKE WORD DETECTED]: Phát hiện 'ALEX'! (Độ tin cậy: {score:.2f})")
+                    print(f"\n ⚡ [WAKE WORD DETECTED]: Phát hiện 'ALEX'! (Độ tin cậy: {score:.2f}, RMS: {rms})")
                     play_beep("wake")
                     
                     with lock:
@@ -373,14 +371,17 @@ def continuous_wake_word_loop(recognizer):
 
                     owwModel.reset()
                     ring_buffer.clear()
+                    recent_scores.clear()
                     consecutive_hits = 0
 
                     try:
                         handle_user_interaction(recognizer)
                     finally:
-                        time.sleep(1.2)
+                        # Thời gian đệm 1.5s chống dội âm và reset sạch mô hình nhận diện
+                        time.sleep(1.5)
                         owwModel.reset()
                         ring_buffer.clear()
+                        recent_scores.clear()
                         with lock:
                             is_processing = False
                     

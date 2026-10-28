@@ -122,6 +122,10 @@ COMMON_WEBSITES = {
     "chatgpt": "https://chatgpt.com",
     "shopee": "https://shopee.vn",
     "zalo web": "https://chat.zalo.me",
+    "tiktok": "https://www.tiktok.com",
+    "netflix": "https://www.netflix.com",
+    "bản đồ": "https://maps.google.com",
+    "google maps": "https://maps.google.com",
 }
 
 COMMON_APPS = {
@@ -153,19 +157,19 @@ def open_web_or_app(name):
     """Mở ứng dụng hoặc trang web theo tên thường gọi"""
     name_clean = name.lower().strip()
     
-    # Kiểm tra trang web
+    # 1. Kiểm tra trang web phổ biến
     for site_key, url in COMMON_WEBSITES.items():
         if site_key in name_clean:
             webbrowser.open(url)
             return f"Đã mở {site_key.title()} trên trình duyệt."
 
-    # Kiểm tra ứng dụng Windows
+    # 2. Kiểm tra ứng dụng Windows
     for app_key, cmd in COMMON_APPS.items():
         if app_key in name_clean:
             os.system(cmd)
             return f"Đã mở ứng dụng {app_key.title()}."
 
-    # Mặc định thử start tên ứng dụng
+    # 3. Mặc định thử start tên ứng dụng
     try:
         os.system(f"start {name_clean}")
         return f"Đang khởi động {name_clean}."
@@ -175,7 +179,12 @@ def open_web_or_app(name):
 def search_google_or_youtube(query, target="google"):
     """Tìm kiếm nội dung trên Google hoặc YouTube"""
     if not query:
-        return "Bạn muốn tìm kiếm điều gì?"
+        if "youtube" in target.lower():
+            webbrowser.open("https://www.youtube.com")
+            return "Đã mở trang chủ YouTube."
+        else:
+            webbrowser.open("https://www.google.com")
+            return "Đã mở trang chủ Google."
     encoded = urllib.parse.quote(query)
     if "youtube" in target.lower():
         url = f"https://www.youtube.com/results?search_query={encoded}"

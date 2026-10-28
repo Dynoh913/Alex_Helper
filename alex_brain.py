@@ -6,6 +6,49 @@ import alex_actions
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
+def clean_command(text):
+    """
+    Chuẩn hóa câu lệnh tiếng Việt:
+    - Loại bỏ dấu câu thừa ở đầu/cuối
+    - Loại bỏ tiền tố xưng hô, khẩu ngữ (ví dụ: 'bảo mở...', 'hãy mở...', 'alex ơi...')
+    - Loại bỏ hậu tố khẩu ngữ (ví dụ: '...cho tôi', '...giùm tôi', '...đi', '...nhé')
+    """
+    if not text:
+        return ""
+    cmd = text.lower().strip()
+    cmd = re.sub(r"^[\,\.\?\!\:\;]+|[\,\.\?\!\:\;]+$", "", cmd).strip()
+    
+    prefix_patterns = [
+        r"^(?:alex\s*ơi|hey\s*alex|alex)\s*",
+        r"^(?:bảo|hãy|làm\s*ơn|vui\s*lòng|nhờ\s*bạn|phiền\s*bạn)\s*",
+        r"^(?:giúp\s*mình|giúp\s*tôi|hộ\s*mình|hộ\s*tôi|giùm\s*mình|giùm\s*tôi)\s*",
+        r"^(?:cho\s*mình|cho\s*tôi|tôi\s*muốn|mình\s*muốn|muốn)\s*",
+        r"^(?:bạn\s*ơi|em\s*ơi)\s*"
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for p in prefix_patterns:
+            new_cmd = re.sub(p, "", cmd).strip()
+            if new_cmd != cmd:
+                cmd = new_cmd
+                changed = True
+
+    suffix_patterns = [
+        r"\s+(?:cho\s*mình|cho\s*tôi|giúp\s*mình|giúp\s*tôi|giùm\s*tôi|giùm\s*mình|hộ\s*tôi|hộ\s*mình)$",
+        r"\s+(?:với\s*nhé|với\s*nào|với|nhé|nha|đi|lên|nào|được\s*không|giùm|hộ)$"
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for p in suffix_patterns:
+            new_cmd = re.sub(p, "", cmd).strip()
+            if new_cmd != cmd:
+                cmd = new_cmd
+                changed = True
+
+    return cmd
+
 def ask_gemini_ai(prompt):
     """Truy vấn câu hỏi tổng quát với Gemini Flash AI siêu tốc (trả lời ngắn gọn 1-2 câu tiếng Việt)"""
     if not GEMINI_API_KEY:
@@ -66,7 +109,7 @@ def ask_antigravity_headless(prompt):
 def process_command(command_text, agy_path=None):
     """
     XỬ LÝ VÀ ĐIỀU PHỐI LỆNH TỔNG THỂ (BRAIN ROUTER):
-    Trả về:
+    Trả về dictionary cấu trúc chuẩn:
     {
         "type": "system" | "app" | "dictation" | "ai" | "antigravity",
         "title": "Tên hành động ngắn",
@@ -74,11 +117,12 @@ def process_command(command_text, agy_path=None):
         "hud_sub": "Mô tả phụ cho giao diện HUD"
     }
     """
-    cmd = command_text.lower().strip()
+    raw_cmd = command_text.lower().strip()
+    cmd = clean_command(command_text)
 
     # 1. GÕ VĂN BẢN TRỰC TIẾP (VOICE DICTATION)
     # Ví dụ: "Gõ: Chào bạn", "Nhập: Hôm nay họp lúc 2 giờ", "Gõ cho tôi nội dung..."
-    dictation_match = re.match(r"^(?:gõ|nhập|viết|soạn)\s*(?:cho tôi|cho mình|văn bản|nội dung|:\s*)?\s*(.+)$", command_text, re.IGNORECASE)
+    dictation_match = re.match(r"^(?:gõ|nhập|viết|soạn)\s*(?:cho tôi|cho mình|văn bản|nội dung|:\s*)?\s*(.+)$", cmd)
     if dictation_match and any(w in cmd[:8] for w in ["gõ", "nhập", "viết", "soạn"]):
         content_to_type = dictation_match.group(1).strip()
         if content_to_type:
@@ -86,7 +130,7 @@ def process_command(command_text, agy_path=None):
             return {
                 "type": "dictation",
                 "title": "Đã gõ văn bản",
-                "speech": f"Đã gõ văn bản vào ứng dụng cho bạn.",
+                "speech": "Đã gõ văn bản vào ứng dụng cho bạn.",
                 "hud_sub": f"\"{content_to_type[:40]}...\""
             }
 
@@ -133,15 +177,15 @@ def process_command(command_text, agy_path=None):
         return {"type": "system", "title": "Độ sáng màn hình", "speech": res, "hud_sub": res}
 
     # 6. QUẢN LÝ CỬA SỔ & MÀN HÌNH
-    if any(k in cmd for k in ["chụp màn hình", "chụp ảnh màn hình", "screenshot"]):
+    if any(k in cmd for k in ["chụp màn hình", "chụp ảnh màn hình", "screenshot", "cắt màn hình"]):
         res = alex_actions.take_screenshot()
         return {"type": "system", "title": "Chụp màn hình", "speech": res, "hud_sub": "Đã mở Windows Snipping Tool"}
 
-    if any(k in cmd for k in ["hiện desktop", "về màn hình chính", "ẩn hết cửa sổ", "thu nhỏ tất cả"]):
+    if any(k in cmd for k in ["hiện desktop", "về màn hình chính", "màn hình chính", "ẩn hết cửa sổ", "thu nhỏ tất cả", "ra desktop", "ra ngoài desktop"]):
         res = alex_actions.show_desktop()
         return {"type": "system", "title": "Màn hình Desktop", "speech": res, "hud_sub": "Đã thu nhỏ các cửa sổ"}
 
-    if any(k in cmd for k in ["đóng cửa sổ", "tắt ứng dụng", "đóng ứng dụng", "tắt tab"]):
+    if any(k in cmd for k in ["đóng cửa sổ", "tắt ứng dụng", "đóng ứng dụng", "tắt tab", "đóng tab"]):
         res = alex_actions.close_active_window()
         return {"type": "system", "title": "Đóng cửa sổ", "speech": res, "hud_sub": "Đã gửi Alt+F4"}
 
@@ -149,20 +193,7 @@ def process_command(command_text, agy_path=None):
         res = alex_actions.lock_computer()
         return {"type": "system", "title": "Khóa máy tính", "speech": res, "hud_sub": "Bảo mật hệ thống"}
 
-    # 7. TÌM KIẾM GOOGLE HOẶC YOUTUBE
-    search_yt_match = re.search(r"(?:tìm|bật|mở)\s*(?:bài hát|video|nhạc|clip|nội dung)?\s*(.+)\s*(?:trên|ở|vào)\s*youtube", cmd)
-    if search_yt_match:
-        query = search_yt_match.group(1).strip()
-        res = alex_actions.search_google_or_youtube(query, target="youtube")
-        return {"type": "app", "title": "Tìm kiếm YouTube", "speech": res, "hud_sub": f"Từ khóa: {query}"}
-
-    search_google_match = re.match(r"^(?:tìm kiếm|tra cứu|tìm trên mạng|google)\s*(?:cho tôi|cho mình|về|cái|)?\s*(.+)$", cmd)
-    if search_google_match:
-        query = search_google_match.group(1).strip()
-        res = alex_actions.search_google_or_youtube(query, target="google")
-        return {"type": "app", "title": "Tìm kiếm Google", "speech": res, "hud_sub": f"Từ khóa: {query}"}
-
-    # 8. CHẾ ĐỘ LẬP TRÌNH ANTIGRAVITY (CHỈ KHI YÊU CẦU RÕ RÀNG - ƯU TIÊN CAO HƠN MỞ APP)
+    # 7. CHẾ ĐỘ LẬP TRÌNH ANTIGRAVITY (Ưu tiên cao hơn mở app thông thường)
     antigravity_keywords = [
         "antigravity", "mở agy", "bật agy", "chạy agy", "dùng agy",
         "lập trình", "viết code", "sửa code", "fix bug",
@@ -177,14 +208,65 @@ def process_command(command_text, agy_path=None):
             "hud_sub": "Mở cửa sổ lập trình chuyên sâu"
         }
 
-    # 9. MỞ ỨNG DỤNG HOẶC TRANG WEB THÔNG THƯỜNG
-    open_match = re.match(r"^(?:mở|bật|vào|khởi động)\s*(?:ứng dụng|phần mềm|trang web|trang)?\s*(.+)$", cmd)
-    if open_match:
-        target_name = open_match.group(1).strip()
+    # 8. YOUTUBE (XỬ LÝ TOÀN DIỆN: TÌM KIẾM VIDEO HOẶC MỞ TRỰC TIẾP)
+    if "youtube" in cmd:
+        yt_search_patterns = [
+            r"(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)\s*(?:bài hát|bài|video|nhạc|clip|nội dung|phim)?\s*(.+?)\s*(?:trên|ở|qua|bằng)\s*youtube",
+            r"(?:trên|ở)\s*youtube\s*(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)?\s*(?:bài hát|bài|video|nhạc|clip|nội dung|phim)?\s*(.+)",
+            r"youtube\s+(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)\s*(?:bài hát|bài|video|nhạc|clip)?\s*(.+)",
+        ]
+        query = None
+        for pat in yt_search_patterns:
+            m = re.search(pat, cmd)
+            if m:
+                extracted = m.group(1).strip()
+                if extracted and extracted not in ["trang web", "web", "ứng dụng", "nghe nhạc", "xem", "cho tôi"]:
+                    query = extracted
+                    break
+
+        if query:
+            res = alex_actions.search_google_or_youtube(query, target="youtube")
+            return {"type": "app", "title": "Tìm kiếm YouTube", "speech": res, "hud_sub": f"Từ khóa: {query}"}
+        else:
+            res = alex_actions.open_web_or_app("youtube")
+            return {"type": "app", "title": "Mở YouTube", "speech": "Đã mở YouTube trên trình duyệt.", "hud_sub": "https://www.youtube.com"}
+
+    # 9. TÌM KIẾM GOOGLE
+    google_search_patterns = [
+        r"^(?:tìm kiếm|tra cứu|tìm trên mạng|google)\s*(?:cho tôi|cho mình|về|cái)?\s*(.+)$",
+        r"(?:tìm kiếm|tra cứu|tìm)\s+(.+?)\s+(?:trên|ở)\s*google",
+    ]
+    for pat in google_search_patterns:
+        m = re.search(pat, cmd)
+        if m:
+            q = m.group(1).strip()
+            if q and q not in ["trang web", "web", "ứng dụng"]:
+                res = alex_actions.search_google_or_youtube(q, target="google")
+                return {"type": "app", "title": "Tìm kiếm Google", "speech": res, "hud_sub": f"Từ khóa: {q}"}
+
+    # 10. MỞ ỨNG DỤNG HOẶC TRANG WEB THÔNG THƯỜNG
+    target_clean = re.sub(r"^(?:mở|bật|vào|khởi động|truy cập|lên|xem)\s*(?:trang web|trang|ứng dụng|phần mềm|app)?\s*", "", cmd).strip()
+    
+    # A. Khớp trang web
+    for site_key in alex_actions.COMMON_WEBSITES:
+        if site_key in target_clean or site_key == cmd:
+            res = alex_actions.open_web_or_app(site_key)
+            return {"type": "app", "title": f"Mở {site_key.title()}", "speech": res, "hud_sub": res}
+
+    # B. Khớp ứng dụng
+    for app_key in alex_actions.COMMON_APPS:
+        if app_key in target_clean or app_key == cmd:
+            res = alex_actions.open_web_or_app(app_key)
+            return {"type": "app", "title": f"Mở {app_key.title()}", "speech": res, "hud_sub": res}
+
+    # C. Nếu câu nói bắt đầu bằng từ khóa mở/bật/vào ứng dụng chung
+    open_fallback_match = re.match(r"^(?:mở|bật|vào|khởi động)\s*(?:ứng dụng|phần mềm|trang web|trang)?\s*(.+)$", cmd)
+    if open_fallback_match:
+        target_name = open_fallback_match.group(1).strip()
         res = alex_actions.open_web_or_app(target_name)
         return {"type": "app", "title": f"Mở {target_name.title()}", "speech": res, "hud_sub": res}
 
-    # 10. TRẢ LỜI KIẾN THỨC BẰNG GEMINI AI (SIÊU TỐC, KHÔNG MỞ CỬA SỔ)
+    # 11. TRẢ LỜI KIẾN THỨC BẰNG GEMINI AI (SIÊU TỐC, KHÔNG MỞ CỬA SỔ)
     ai_answer = ask_gemini_ai(command_text)
     if not ai_answer:
         ai_answer = ask_antigravity_headless(command_text)

@@ -62,7 +62,7 @@
 2. **Phím tắt toàn cục:** **`Ctrl + Alt + Space`** ở bất cứ cửa sổ nào.
 
 ### Cách Chốt Câu Lệnh:
-- Tự động ngắt khi bạn dừng nói $1.2\text{s}$.
+- Tự động ngắt khi bạn dừng nói $1.8\text{s}$ (chuẩn tự nhiên theo nhịp nói tiếng Việt).
 - Nói từ khóa *"OVER"* ở cuối câu khi phòng ồn ào.
 - Bấm **`Space`** hoặc **`Enter`** để gửi ngay.
 - Bấm **`Esc`** để hủy bỏ hoặc ngắt lời Alex.
@@ -77,7 +77,11 @@ Alex_Helper/
 ├── alex_hud.py             # Giao diện viên thuốc nổi trong suốt (Floating HUD)
 ├── alex_actions.py         # Bộ máy điều khiển Windows Native, Apps & Dictation
 ├── alex_brain.py           # Bộ định tuyến ý định tự nhiên & Gemini AI Voice
-├── test_alex_suite.py      # Bộ kiểm thử tự động 10/10 test case
+├── test_alex_suite.py      # Bộ kiểm thử tự động 12/12 test case chuẩn xác
+├── run.bat                 # Khởi động với cửa sổ Console
+├── run_silent.vbs          # Khởi động ngầm hoàn toàn không hiện Console
+└── setup_startup.bat       # Cài đặt tự khởi động cùng Windows
+```
 ├── download_models.py      # Tải mô hình âm học ONNX openWakeWord
 ├── install.bat             # Cài đặt tự động 1-click
 ├── run.bat                 # Khởi chạy có bảng điều khiển
