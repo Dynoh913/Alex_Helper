@@ -136,11 +136,11 @@ def play_beep(tone_type):
     except Exception:
         pass
 
-def record_audio_interactive(max_duration=15, silence_timeout=1.6, initial_frames=None):
+def record_audio_interactive(max_duration=15, silence_timeout=1.3, initial_frames=None):
     """
     Thu âm tương tác thông minh kết hợp hiển thị trạng thái lên Floating HUD:
-    - Tự động đo độ ồn phòng (Adaptive Noise Floor)
-    - Tự động ngắt khi phát hiện im lặng 1.6s sau khi nói
+    - Tự động đo độ ồn phòng thích ứng với micro laptop có chống ồn (Adaptive Noise Floor)
+    - Tự động ngắt khi phát hiện im lặng 1.3s sau khi nói
     - Hỗ trợ chốt lệnh bằng: từ 'OVER', phím [Space], [Enter], hoặc phím tắt
     - Hỗ trợ hủy bằng: phím [Esc]
     """
@@ -160,8 +160,13 @@ def record_audio_interactive(max_duration=15, silence_timeout=1.6, initial_frame
     for _ in range(4):
         chunk_data = stream.read(CHUNK, exception_on_overflow=False)
         ambient_samples.append(audioop.rms(chunk_data, 2))
-    ambient_rms = int(sum(ambient_samples) / len(ambient_samples)) if ambient_samples else 6
-    energy_threshold = max(ambient_rms + 12, int(ambient_rms * 1.5))
+    ambient_rms = int(sum(ambient_samples) / len(ambient_samples)) if ambient_samples else 4
+    
+    # Cân chỉnh độ nhạy: nếu độ ồn phòng rất thấp (mic laptop lọc ồn = 0-3), ngưỡng chỉ cần từ 5-6
+    if ambient_rms <= 3:
+        energy_threshold = max(ambient_rms + 4, 5)
+    else:
+        energy_threshold = max(ambient_rms + 6, int(ambient_rms * 1.3))
 
     frames = list(initial_frames) if initial_frames else []
     start_time = time.time()
@@ -221,7 +226,7 @@ def handle_user_interaction(recognizer, initial_frames=None):
     """Quản lý trọn vẹn luồng tương tác của người dùng và cập nhật giao diện HUD"""
     hud.show("🎙️", "Alex đang nghe...", "Mẹo: Nói 'OVER' hoặc bấm Space để gửi")
     
-    audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.8, initial_frames=initial_frames)
+    audio_data = record_audio_interactive(max_duration=15, silence_timeout=1.3, initial_frames=initial_frames)
     if not audio_data:
         print(" ℹ️ [THÔNG BÁO]: Không nhận được âm thanh nào.")
         hud.hide()
@@ -256,7 +261,7 @@ def handle_user_interaction(recognizer, initial_frames=None):
             print("=" * 65)
             hud.update_text("Alex đang nghe lựa chọn...", "Nói: YouTube / Spotify / Zing MP3...")
 
-            followup_audio = record_audio_interactive(max_duration=8, silence_timeout=1.4)
+            followup_audio = record_audio_interactive(max_duration=8, silence_timeout=1.2)
             followup_text = ""
             if followup_audio:
                 try:

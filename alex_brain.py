@@ -19,6 +19,9 @@ def clean_command(text):
     cmd = text.lower().strip()
     cmd = re.sub(r"^[\,\.\?\!\:\;]+|[\,\.\?\!\:\;]+$", "", cmd).strip()
     
+    # Sửa các lỗi nhận diện giọng nói tiếng Việt phổ biến (ASR phonetic confusions)
+    cmd = re.sub(r"^(?:clickbuy|click\s*buy|click\s*bài|play\s*bài|play)\s*(?:bài)?\s*", "bật bài ", cmd).strip()
+
     prefix_patterns = [
         r"^(?:alex\s*ơi|hey\s*alex|alex)\s*",
         r"^(?:bảo|hãy|làm\s*ơn|vui\s*lòng|nhờ\s*bạn|phiền\s*bạn)\s*",
@@ -49,6 +52,33 @@ def clean_command(text):
                 changed = True
 
     return cmd
+
+def clean_media_query(query):
+    """
+    Làm sạch tên bài hát / video khỏi các khẩu ngữ đệm trong tiếng Việt:
+    'sóng gió trên màn hình' -> 'sóng gió'
+    'sóng gió lên màn hình' -> 'sóng gió'
+    'sóng gió cho tôi nghe' -> 'sóng gió'
+    'sóng gió cho tôi xem' -> 'sóng gió'
+    """
+    if not query:
+        return ""
+    q = query.strip()
+    noise_suffixes = [
+        r"\s+(?:trên|lên|ra|chiếu\s*lên)\s*màn\s*hình$",
+        r"\s+(?:cho\s*tôi|cho\s*mình)\s*(?:nghe|xem|coi)?$",
+        r"\s+(?:nghe|xem|coi)\s*(?:đi|nhé|nào)?$",
+        r"\s+(?:ngay\s*bây\s*giờ|ngay\s*đi|liền\s*đi|nhé|nha|đi)$"
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for pat in noise_suffixes:
+            new_q = re.sub(pat, "", q, flags=re.IGNORECASE).strip()
+            if new_q != q:
+                q = new_q
+                changed = True
+    return q
 
 def ask_gemini_ai(prompt):
     """Truy vấn câu hỏi tổng quát với Gemini Flash AI siêu tốc (timeout 4s chống đơ)"""
@@ -115,6 +145,17 @@ def process_command(command_text, agy_path=None):
     """
     raw_cmd = command_text.lower().strip()
     cmd = clean_command(command_text)
+
+    # 0. NẾU NGƯỜI DÙNG CHỈ GỌI TÊN HOẶC CHÀO HỎI (VD: "ALEX", "HEY ALEX", "ƠI ALEX", "ALEX ƠI")
+    if not cmd or cmd in ["ơi", "dạ", "alo", "có đó không", "ở đó không", "bạn ơi", "nghe không", "nghe rõ không"]:
+        return {
+            "type": "clarify",
+            "action": "greeting",
+            "query": "",
+            "title": "Alex đang nghe",
+            "speech": "Tôi đây, bạn muốn Alex giúp gì nào?",
+            "hud_sub": "Đang lắng nghe yêu cầu của bạn..."
+        }
 
     # 1. GÕ VĂN BẢN TRỰC TIẾP (VOICE DICTATION)
     # Ví dụ: "Gõ: Chào bạn", "Nhập: Hôm nay họp lúc 2 giờ", "Gõ cho tôi nội dung..."
@@ -280,6 +321,7 @@ def process_command(command_text, agy_path=None):
                     query = extracted
 
         if query:
+            query = clean_media_query(query)
             res = alex_actions.play_media_on_platform(query, platform=specified_platform)
             return {"type": "app", "title": f"{platform_label}: {query.title()}", "speech": res, "hud_sub": f"Từ khóa: {query}"}
         else:
@@ -307,7 +349,8 @@ def process_command(command_text, agy_path=None):
         media_query = "nhạc hay"
 
     if media_query is not None:
-        target_song = media_query if media_query and media_query not in ["hay", "nhẹ nhàng", "chill"] else "nhạc hay"
+        cleaned_media = clean_media_query(media_query)
+        target_song = cleaned_media if cleaned_media and cleaned_media not in ["hay", "nhẹ nhàng", "chill"] else "nhạc hay"
         default_plat = alex_config.get_default_music_platform()
 
         # NẾU CẤU HÌNH LÀ "ASK" -> KÍCH HOẠT HỘI THOẠI ĐA LƯỢT (CLARIFICATION DIALOGUE)
@@ -412,8 +455,13 @@ def resolve_clarification(clarify_context, user_reply):
         return {"type": "app", "title": "Hoàn tất", "speech": "Đã xử lý yêu cầu.", "hud_sub": ""}
 
     action = clarify_context.get("action", "")
-    query = clarify_context.get("query", "nhạc hay")
+    query = clean_media_query(clarify_context.get("query", "nhạc hay"))
     reply = clean_command(user_reply).lower()
+
+    if action == "greeting":
+        if not reply or reply in ["không có gì", "thôi", "hủy", "không cần", "bỏ đi", "thoát"]:
+            return {"type": "app", "title": "Sẵn sàng", "speech": "Vâng, khi nào cần bạn cứ gọi Alex nhé.", "hud_sub": "Đang ở chế độ chờ"}
+        return process_command(user_reply)
 
     if action == "play_music":
         platform = "youtube"
