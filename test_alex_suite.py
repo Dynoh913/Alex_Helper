@@ -209,8 +209,42 @@ def run_tests():
         print(f" [FAIL] Test 15: {e}")
         failed += 1
 
+    # Test 16: Semantic colloquial reasoning (Gián tiếp, khẩu ngữ tự nhiên)
+    try:
+        # Kiểm tra pin không bị nhầm thành calculator
+        res_bat = alex_brain.process_command("máy tính còn bao nhiêu phần trăm điện")
+        assert res_bat["type"] == "system" and "pin" in res_bat["title"].lower()
+
+        # Giảm độ sáng khi chói mắt
+        res_bri = alex_brain.process_command("chói mắt quá Alex ơi")
+        assert res_bri["type"] == "system" and "độ sáng" in res_bri["title"].lower()
+
+        # Thu nhỏ cửa sổ về desktop khi người dùng muốn làm việc
+        res_desk = alex_brain.process_command("tắt hết cửa sổ đi để tao làm việc")
+        assert res_desk["type"] == "system" and "desktop" in res_desk["title"].lower()
+
+        # Tăng âm lượng khi loa bé
+        res_vol = alex_brain.process_command("loa bé quá cho to lên tí")
+        assert res_vol["type"] == "system" and "âm lượng" in res_vol["title"].lower()
+
+        print(f" [PASS] Test 16: Suy luận ngữ nghĩa gián tiếp ('chói mắt', 'loa bé', 'tắt hết cửa sổ', 'phần trăm điện')")
+        passed += 1
+    except Exception as e:
+        print(f" [FAIL] Test 16: {e}")
+        failed += 1
+
+    # Test 17: Complex Natural Music Query ("cho tớ nghe cái bài gì của Jack mà có hoa hải đường ấy")
+    try:
+        res_jack = alex_brain.process_command("cho tớ nghe cái bài gì của Jack mà có hoa hải đường ấy")
+        assert res_jack["type"] in ["clarify", "app"]
+        print(f" [PASS] Test 17: Phân tích bài hát theo mô tả nội dung ('bài gì của Jack mà có hoa hải đường')")
+        passed += 1
+    except Exception as e:
+        print(f" [FAIL] Test 17: {e}")
+        failed += 1
+
     print("=" * 60)
-    print(f" KẾT QUẢ: {passed}/15 BÀI KIỂM THỬ ĐẠT CHUẨN (Passed: {passed}, Failed: {failed})")
+    print(f" KẾT QUẢ: {passed}/17 BÀI KIỂM THỬ ĐẠT CHUẨN (Passed: {passed}, Failed: {failed})")
     print("=" * 60)
 
 if __name__ == "__main__":

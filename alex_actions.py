@@ -72,7 +72,7 @@ def change_brightness(direction="up", delta=15):
         cur_val = int(lines[-1])
         new_val = min(100, cur_val + delta) if direction == "up" else max(10, cur_val - delta)
         
-        cmd_set = f"powershell -Command \"(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(1, {new_val})\""
+        cmd_set = f"powershell -Command \"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, {new_val})\""
         subprocess.Popen(cmd_set, shell=True)
         return f"Đã chỉnh độ sáng lên {new_val}%."
     except Exception:
@@ -136,8 +136,11 @@ COMMON_APPS = {
     "edge": "start msedge",
     "notepad": "start notepad",
     "ghi chú": "start notepad",
+    "máy tính cầm tay": "start calc",
+    "máy tính bỏ túi": "start calc",
     "máy tính": "start calc",
     "calculator": "start calc",
+    "calc": "start calc",
     "thư mục": "start explorer",
     "quản lý tệp": "start explorer",
     "explorer": "start explorer",
@@ -166,6 +169,12 @@ def open_web_or_app(name):
 
     # 2. Kiểm tra ứng dụng Windows đã khai báo
     for app_key, cmd in COMMON_APPS.items():
+        if app_key == "máy tính":
+            # Tránh nhầm lẫn giữa laptop/PC ("máy tính còn pin không") và ứng dụng Calculator
+            if any(w in name_clean for w in ["pin", "điện", "bao nhiêu", "%", "nóng", "cấu hình", "treo", "đơ"]):
+                continue
+            if name_clean not in ["máy tính", "mở máy tính", "bật máy tính", "app máy tính", "ứng dụng máy tính", "máy tính cầm tay", "máy tính bỏ túi"]:
+                continue
         if app_key in name_clean:
             os.system(cmd)
             return f"Đã mở ứng dụng {app_key.title()}."

@@ -5,6 +5,7 @@ import subprocess
 import alex_actions
 import alex_config
 import alex_corrector
+import alex_ai_router
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
@@ -90,7 +91,7 @@ def ask_gemini_ai(prompt):
     if not GEMINI_API_KEY:
         return None
 
-    candidate_models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
+    candidate_models = ["gemini-3-flash-preview"]
     system_instruction = (
         "Bạn là Alex, trợ lý ảo thông minh trên máy tính Windows. "
         "Hãy trả lời người dùng một cách thân thiện, chính xác, cực kỳ ngắn gọn (chỉ 1 hoặc 2 câu) "
@@ -162,6 +163,255 @@ def process_command(command_text, agy_path=None):
             "hud_sub": "Đang lắng nghe yêu cầu của bạn..."
         }
 
+    # =========================================================================
+    # TIER 1: SUY LUẬN NGỮ NGHĨA AI (GEMINI-3-FLASH SEMANTIC REASONING ENGINE)
+    # Tự động đọc hiểu ý định người dùng (câu gián tiếp, tiếng lóng, nói ngọng,
+    # ASR nhầm âm, câu cầu khiến phức tạp) mà KHÔNG CẦN hardcode regex.
+    # =========================================================================
+    if GEMINI_API_KEY:
+        ai_intent = alex_ai_router.parse_intent_with_ai(command_text, timeout=2.5)
+        if ai_intent and isinstance(ai_intent, dict):
+            action = ai_intent.get("action")
+            target = ai_intent.get("target")
+            platform = ai_intent.get("platform")
+            reasoning = ai_intent.get("reasoning", "")
+            ai_speech = ai_intent.get("speech", "")
+
+            if action and action != "unknown":
+                if reasoning:
+                    print(f" 🧠 [AI SUY LUẬN]: {reasoning}")
+
+                # 1. PHÁT NHẠC / VIDEO
+                if action == "play_music":
+                    target_str = str(target).strip() if target else "nhạc hay"
+                    target_str = clean_media_query(target_str)
+                    if not target_str or target_str in ["nhạc", "bài hát", "ca khúc", "video"]:
+                        target_str = "nhạc hay"
+
+                    if platform in ["youtube", "spotify", "zingmp3", "soundcloud", "nhaccuatui"]:
+                        res = alex_actions.play_media_on_platform(target_str, platform=platform)
+                        plat_name = "YouTube" if platform == "youtube" else ("Spotify" if platform == "spotify" else "Zing MP3")
+                        return {
+                            "type": "app",
+                            "title": f"{plat_name}: {target_str.title()}",
+                            "speech": res,
+                            "hud_sub": f"Từ khóa: {target_str}",
+                            "reasoning": reasoning
+                        }
+                    else:
+                        default_plat = alex_config.get_default_music_platform()
+                        if default_plat == "ask":
+                            song_display = f"bài {target_str}" if target_str != "nhạc hay" else "nhạc"
+                            return {
+                                "type": "clarify",
+                                "action": "play_music",
+                                "query": target_str,
+                                "title": f"Phát: {target_str.title()}",
+                                "speech": f"Bạn muốn nghe {song_display} trên YouTube, Spotify hay Zing MP3?",
+                                "hud_sub": "Đang chờ: YouTube / Spotify / Zing MP3",
+                                "reasoning": reasoning
+                            }
+                        else:
+                            plat_name = "YouTube" if default_plat == "youtube" else ("Spotify" if default_plat == "spotify" else "Zing MP3")
+                            res = alex_actions.play_media_on_platform(target_str, platform=default_plat)
+                            return {
+                                "type": "app",
+                                "title": f"{plat_name}: {target_str.title()}",
+                                "speech": res,
+                                "hud_sub": f"Bài hát: {target_str}",
+                                "reasoning": reasoning
+                            }
+
+                # 2. ĐIỀU KHIỂN PHÁT NHẠC (PLAY/PAUSE/NEXT/PREV/STOP)
+                elif action == "control_media":
+                    sub_act = str(target).lower().strip() if target else "play_pause"
+                    if sub_act not in ["play_pause", "next", "prev", "stop"]:
+                        sub_act = "play_pause"
+                    res = alex_actions.media_control(sub_act)
+                    title_map = {"play_pause": "Tạm dừng/Tiếp tục", "next": "Bài tiếp theo", "prev": "Bài trước đó", "stop": "Dừng phát"}
+                    return {
+                        "type": "system",
+                        "title": title_map.get(sub_act, "Điều khiển phát nhạc"),
+                        "speech": res,
+                        "hud_sub": f"Media: {sub_act}",
+                        "reasoning": reasoning
+                    }
+
+                # 3. ĐIỀU CHỈNH ÂM LƯỢNG
+                elif action == "system_volume":
+                    vol_act = str(target).lower().strip() if target else "up"
+                    if vol_act not in ["up", "down", "mute"]:
+                        vol_act = "up"
+                    res = alex_actions.change_volume(vol_act)
+                    return {
+                        "type": "system",
+                        "title": "Âm lượng",
+                        "speech": res,
+                        "hud_sub": res,
+                        "reasoning": reasoning
+                    }
+
+                # 4. ĐIỀU CHỈNH ĐỘ SÁNG MÀN HÌNH
+                elif action == "system_brightness":
+                    bri_act = str(target).lower().strip() if target else "down"
+                    if bri_act not in ["up", "down"]:
+                        bri_act = "down"
+                    res = alex_actions.change_brightness(bri_act)
+                    return {
+                        "type": "system",
+                        "title": "Độ sáng màn hình",
+                        "speech": res,
+                        "hud_sub": res,
+                        "reasoning": reasoning
+                    }
+
+                # 5. QUẢN LÝ CỬA SỔ & MÀN HÌNH
+                elif action == "system_window":
+                    win_act = str(target).lower().strip() if target else "desktop"
+                    if win_act == "desktop":
+                        res = alex_actions.show_desktop()
+                        title = "Màn hình Desktop"
+                    elif win_act == "screenshot":
+                        res = alex_actions.take_screenshot()
+                        title = "Chụp màn hình"
+                    elif win_act == "close":
+                        res = alex_actions.close_active_window()
+                        title = "Đóng cửa sổ"
+                    elif win_act == "lock":
+                        res = alex_actions.lock_computer()
+                        title = "Khóa máy tính"
+                    else:
+                        res = alex_actions.show_desktop()
+                        title = "Màn hình Desktop"
+                    return {
+                        "type": "system",
+                        "title": title,
+                        "speech": res,
+                        "hud_sub": res,
+                        "reasoning": reasoning
+                    }
+
+                # 6. THÔNG TIN HỆ THỐNG (PIN, GIỜ, NGÀY THÁNG)
+                elif action == "system_info":
+                    info_act = str(target).lower().strip() if target else "time"
+                    if info_act == "battery":
+                        info = alex_actions.get_battery_info()
+                        title = "Kiểm tra pin laptop"
+                    else:
+                        info = alex_actions.get_time_date_info()
+                        title = "Xem giờ & Ngày"
+                    return {
+                        "type": "system",
+                        "title": title,
+                        "speech": info,
+                        "hud_sub": info,
+                        "reasoning": reasoning
+                    }
+
+                # 7. MỞ ỨNG DỤNG
+                elif action == "open_app":
+                    app_name = str(target).lower().strip() if target else ""
+                    res = alex_actions.open_web_or_app(app_name)
+                    return {
+                        "type": "app",
+                        "title": f"Mở {app_name.title()}",
+                        "speech": res,
+                        "hud_sub": res,
+                        "reasoning": reasoning
+                    }
+
+                # 8. MỞ TRANG WEB
+                elif action == "open_website":
+                    site_name = str(target).lower().strip() if target else ""
+                    res = alex_actions.open_web_or_app(site_name)
+                    return {
+                        "type": "app",
+                        "title": f"Mở {site_name.title()}",
+                        "speech": res,
+                        "hud_sub": res,
+                        "reasoning": reasoning
+                    }
+
+                # 9. TÌM KIẾM GOOGLE
+                elif action == "search_web":
+                    q = str(target).strip() if target else ""
+                    res = alex_actions.search_google_or_youtube(q, target="google")
+                    return {
+                        "type": "app",
+                        "title": "Tìm kiếm Google",
+                        "speech": res,
+                        "hud_sub": f"Từ khóa: {q}",
+                        "reasoning": reasoning
+                    }
+
+                # 10. GÕ VĂN BẢN TRỰC TIẾP (VOICE DICTATION)
+                elif action == "dictation":
+                    text_to_type = str(target).strip() if target else ""
+                    if text_to_type:
+                        res = alex_actions.type_text_to_cursor(text_to_type)
+                        return {
+                            "type": "dictation",
+                            "title": "Đã gõ văn bản",
+                            "speech": "Đã gõ văn bản vào ứng dụng cho bạn.",
+                            "hud_sub": f"\"{text_to_type[:40]}...\"",
+                            "reasoning": reasoning
+                        }
+
+                # 11. CÀI ĐẶT SỞ THÍCH MẶC ĐỊNH
+                elif action == "preference":
+                    pref = str(target).lower().strip() if target else "ask"
+                    if pref in ["spotify", "youtube", "zingmp3", "ask"]:
+                        alex_config.set_default_music_platform(pref)
+                        plat_display = "Spotify" if pref == "spotify" else ("YouTube" if pref == "youtube" else ("Zing MP3" if pref == "zingmp3" else "hỏi trước"))
+                        speech_text = f"Đã đặt {plat_display} làm nền tảng nghe nhạc mặc định của bạn." if pref != "ask" else "Đã bật chế độ luôn hỏi trước khi phát nhạc."
+                        return {
+                            "type": "system",
+                            "title": "Cài đặt mặc định",
+                            "speech": speech_text,
+                            "hud_sub": f"Mặc định: {plat_display}",
+                            "reasoning": reasoning
+                        }
+
+                # 12. HỖ TRỢ LẬP TRÌNH ANTIGRAVITY
+                elif action == "antigravity":
+                    res = alex_actions.launch_antigravity_cli(str(target) or command_text, agy_path=agy_path)
+                    return {
+                        "type": "antigravity",
+                        "title": "Antigravity CLI",
+                        "speech": "Đang mở Antigravity CLI để hỗ trợ bạn lập trình.",
+                        "hud_sub": "Mở cửa sổ lập trình chuyên sâu",
+                        "reasoning": reasoning
+                    }
+
+                # 13. CHÀO HỎI / GỌI TÊN
+                elif action == "greeting":
+                    return {
+                        "type": "clarify",
+                        "action": "greeting",
+                        "query": "",
+                        "title": "Alex đang nghe",
+                        "speech": "Tôi đây, bạn muốn Alex giúp gì nào?",
+                        "hud_sub": "Đang lắng nghe yêu cầu của bạn...",
+                        "reasoning": reasoning
+                    }
+
+                # 14. HỎI ĐÁP KIẾN THỨC TỔNG QUÁT (GENERAL QA)
+                elif action == "general_qa":
+                    qa_ans = ai_speech or (str(target) if target else "Tôi đây, tôi có thể giúp gì cho bạn?")
+                    qa_ans = re.sub(r'[\*\#\_\[\]\`]', '', qa_ans).strip()
+                    return {
+                        "type": "ai",
+                        "title": "Alex AI",
+                        "speech": qa_ans,
+                        "hud_sub": qa_ans[:60] + "..." if len(qa_ans) > 60 else qa_ans,
+                        "reasoning": reasoning
+                    }
+
+    # =========================================================================
+    # TIER 2: LOCAL FAST HEURISTIC ENGINE (OFFLINE FALLBACK 0s)
+    # Được kích hoạt khi mất kết nối mạng hoặc không có API key.
+    # =========================================================================
+
     # 1. GÕ VĂN BẢN TRỰC TIẾP (VOICE DICTATION)
     # Ví dụ: "Gõ: Chào bạn", "Nhập: Hôm nay họp lúc 2 giờ", "Gõ cho tôi nội dung..."
     dictation_match = re.match(r"^(?:gõ|nhập|viết|soạn)\s*(?:cho tôi|cho mình|văn bản|nội dung|:\s*)?\s*(.+)$", cmd)
@@ -186,8 +436,13 @@ def process_command(command_text, agy_path=None):
             "hud_sub": info
         }
 
-    # 3. KIỂM TRA PIN
-    if any(k in cmd for k in ["kiểm tra pin", "pin còn bao nhiêu", "mức pin", "thời lượng pin", "pin máy tính", "xem pin"]):
+    # 3. KIỂM TRA PIN & ĐIỆN NĂNG
+    battery_keywords = [
+        "kiểm tra pin", "pin còn", "mức pin", "thời lượng pin", "pin máy tính",
+        "xem pin", "phần trăm điện", "phần trăm pin", "% pin", "% điện",
+        "còn bao nhiêu điện", "còn bao nhiêu pin", "sắp hết pin", "có cần cắm sạc", "có cần sạc"
+    ]
+    if any(k in cmd for k in battery_keywords):
         info = alex_actions.get_battery_info()
         return {
             "type": "system",
@@ -197,11 +452,13 @@ def process_command(command_text, agy_path=None):
         }
 
     # 4. ĐIỀU KHIỂN ÂM LƯỢNG
-    if any(k in cmd for k in ["tăng âm lượng", "tăng tiếng", "to lên", "bật to lên", "cho to"]):
+    vol_up_keys = ["tăng âm lượng", "tăng tiếng", "to lên", "bật to lên", "cho to", "loa bé", "loa nhỏ", "bé quá", "nhỏ quá", "nghe không rõ"]
+    if any(k in cmd for k in vol_up_keys):
         res = alex_actions.change_volume("up")
         return {"type": "system", "title": "Âm lượng", "speech": res, "hud_sub": "Đã tăng thêm 5 mức"}
 
-    if any(k in cmd for k in ["giảm âm lượng", "giảm tiếng", "nhỏ lại", "nhỏ bớt", "cho nhỏ"]):
+    vol_down_keys = ["giảm âm lượng", "giảm tiếng", "nhỏ lại", "nhỏ bớt", "cho nhỏ", "ồn quá", "to quá", "điếc tai", "vặn nhỏ lại"]
+    if any(k in cmd for k in vol_down_keys):
         res = alex_actions.change_volume("down")
         return {"type": "system", "title": "Âm lượng", "speech": res, "hud_sub": "Đã giảm bớt 5 mức"}
 
@@ -210,12 +467,14 @@ def process_command(command_text, agy_path=None):
         return {"type": "system", "title": "Âm lượng", "speech": res, "hud_sub": "Chuyển trạng thái bật/tắt tiếng"}
 
     # 5. ĐIỀU CHỈNH ĐỘ SÁNG MÀN HÌNH
-    if any(k in cmd for k in ["tăng độ sáng", "sáng hơn", "màn hình tối quá"]):
-        res = alex_actions.change_brightness("up")
+    bri_down_keys = ["giảm độ sáng", "tối bớt", "màn hình sáng quá", "chói mắt", "chói quá", "lóa mắt", "nhức mắt", "sáng chói", "hạ độ sáng"]
+    if any(k in cmd for k in bri_down_keys):
+        res = alex_actions.change_brightness("down")
         return {"type": "system", "title": "Độ sáng màn hình", "speech": res, "hud_sub": res}
 
-    if any(k in cmd for k in ["giảm độ sáng", "tối bớt", "màn hình sáng quá"]):
-        res = alex_actions.change_brightness("down")
+    bri_up_keys = ["tăng độ sáng", "sáng hơn", "màn hình tối quá", "tối quá", "mờ quá", "không nhìn rõ", "cho sáng lên", "bật sáng lên"]
+    if any(k in cmd for k in bri_up_keys):
+        res = alex_actions.change_brightness("up")
         return {"type": "system", "title": "Độ sáng màn hình", "speech": res, "hud_sub": res}
 
     # 6. QUẢN LÝ CỬA SỔ & MÀN HÌNH
@@ -223,7 +482,12 @@ def process_command(command_text, agy_path=None):
         res = alex_actions.take_screenshot()
         return {"type": "system", "title": "Chụp màn hình", "speech": res, "hud_sub": "Đã mở Windows Snipping Tool"}
 
-    if any(k in cmd for k in ["hiện desktop", "về màn hình chính", "màn hình chính", "ẩn hết cửa sổ", "thu nhỏ tất cả", "ra desktop", "ra ngoài desktop"]):
+    desktop_keys = [
+        "hiện desktop", "về màn hình chính", "màn hình chính", "ẩn hết cửa sổ",
+        "thu nhỏ tất cả", "ra desktop", "ra ngoài desktop", "tắt hết cửa sổ",
+        "đóng hết cửa sổ", "ẩn các cửa sổ", "để tao làm việc", "để tôi làm việc"
+    ]
+    if any(k in cmd for k in desktop_keys):
         res = alex_actions.show_desktop()
         return {"type": "system", "title": "Màn hình Desktop", "speech": res, "hud_sub": "Đã thu nhỏ các cửa sổ"}
 
@@ -336,9 +600,14 @@ def process_command(command_text, agy_path=None):
     # B. Yêu cầu bật bài hát / phát nhạc tự nhiên nhưng CHƯA CHỈ ĐỊNH NỀN TẢNG
     # Ví dụ: "Bật bài sóng gió", "Mở bài hát lạc trôi", "Nghe nhạc lofi", "Phát ca khúc..."
     media_query = None
-    music_match = re.match(r"^(?:bật|mở|nghe|phát|chơi)\s+(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s*(.*)$", cmd)
+    music_match = re.match(r"^(?:bật|mở|nghe|phát|chơi)\s+(?:cái\s*)?(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s*(.*)$", cmd)
     if music_match:
         media_query = music_match.group(1).strip()
+
+    if not media_query:
+        search_song_match = re.search(r"(?:bài|bài\s*hát|ca\s*khúc)\s+(?:gì\s+)?(?:của|có|về)\s+(.+)", cmd)
+        if search_song_match:
+            media_query = search_song_match.group(1).strip()
 
     if not media_query:
         video_match = re.match(r"^(?:bật|mở|xem|chiếu|phát)\s+(?:video|clip|phim\s*hoạt\s*hình|phim)\s*(.*)$", cmd)
