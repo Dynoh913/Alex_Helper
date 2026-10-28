@@ -1,26 +1,29 @@
 @echo off
-chcp 65001 >nul
-title Kích hoạt tự khởi động Alex cùng Windows
 cd /d "%~dp0"
 
-set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
-set "OLD_BAT=%STARTUP_FOLDER%\AntigravityVoice.bat"
-set "TARGET_BAT=%STARTUP_FOLDER%\AlexVoiceAssistant.bat"
+echo [ALEX HELPER] Dang dang ky khoi dong cung Windows...
 
-if exist "%OLD_BAT%" del /f /q "%OLD_BAT%"
+set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+set "BAT_FILE=%STARTUP_FOLDER%\AlexVoiceAssistant.bat"
+
+if not exist "%STARTUP_FOLDER%" (
+    echo [ERROR] Khong tim thay thu muc Startup cua Windows.
+    pause
+    exit /b 1
+)
 
 (
-    echo @echo off
-    echo cd /d "%~dp0"
-    echo start "" /min cmd.exe /c "run.bat"
-    echo exit
-) > "%TARGET_BAT%"
+echo @echo off
+echo cd /d "%~dp0"
+echo if exist ".venv\Scripts\pythonw.exe" (
+echo     start "" ".venv\Scripts\pythonw.exe" "voice_assistant.py"
+echo ^) else (
+echo     start "" /min cmd.exe /c "run.bat"
+echo ^)
+echo exit
+) > "%BAT_FILE%"
 
-echo.
-echo ==================================================================
-echo [OK] Da tao file khoi dong Alex cung Windows!
-echo Vi tri: %TARGET_BAT%
-echo Alex se tu dong chay ngam moi khi ban dang nhap Windows.
-echo ==================================================================
-echo.
+echo [THANH CONG] Tro ly Alex da duoc dang ky tu dong chay ngam cung Windows!
+echo [THONG TIN] File khoi dong: "%BAT_FILE%"
 pause
+exit /b 0
