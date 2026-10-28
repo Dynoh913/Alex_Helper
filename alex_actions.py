@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import time
+import shutil
 import ctypes
 import datetime
 import subprocess
@@ -163,18 +164,30 @@ def open_web_or_app(name):
             webbrowser.open(url)
             return f"Đã mở {site_key.title()} trên trình duyệt."
 
-    # 2. Kiểm tra ứng dụng Windows
+    # 2. Kiểm tra ứng dụng Windows đã khai báo
     for app_key, cmd in COMMON_APPS.items():
         if app_key in name_clean:
             os.system(cmd)
             return f"Đã mở ứng dụng {app_key.title()}."
 
-    # 3. Mặc định thử start tên ứng dụng
+    # 3. Nếu là yêu cầu nhạc / bài hát / video mà lọt vào đây -> Tự động tìm kiếm trên YouTube
+    media_markers = ["bài", "nhạc", "hát", "ca khúc", "bài ca", "video", "clip", "phim", "mp3"]
+    if any(m in name_clean.split() for m in media_markers):
+        cleaned_query = re.sub(r"^(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc|video|clip|phim)\s*", "", name_clean).strip()
+        query_to_search = cleaned_query if cleaned_query else "nhạc hay"
+        return search_google_or_youtube(query_to_search, target="youtube")
+
+    # 4. Kiểm tra an toàn trước khi gọi lệnh hệ thống (Chống hộp thoại Windows cannot find)
     try:
-        os.system(f"start {name_clean}")
-        return f"Đang khởi động {name_clean}."
+        # Chỉ thử start nếu không chứa khoảng trắng và có file thực thi tương ứng
+        single_word = name_clean.split()[0] if name_clean else ""
+        if single_word and (shutil.which(single_word) or shutil.which(f"{single_word}.exe")):
+            subprocess.Popen(f"start {name_clean}", shell=True)
+            return f"Đang khởi động {name_clean}."
     except Exception:
-        return f"Không tìm thấy ứng dụng {name_clean}."
+        pass
+
+    return f"Không tìm thấy ứng dụng hoặc bài hát {name_clean}."
 
 def search_google_or_youtube(query, target="google"):
     """Tìm kiếm nội dung trên Google hoặc YouTube"""

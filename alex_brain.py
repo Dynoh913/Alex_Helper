@@ -203,7 +203,8 @@ def process_command(command_text, agy_path=None):
             "hud_sub": "Mở cửa sổ lập trình chuyên sâu"
         }
 
-    # 8. YOUTUBE (XỬ LÝ TOÀN DIỆN: TÌM KIẾM VIDEO HOẶC MỞ TRỰC TIẾP)
+    # 8. PHÁT NHẠC, BÀI HÁT & VIDEO (YOUTUBE / MEDIA ROUTER)
+    # A. Nếu người dùng nói đích danh 'YouTube'
     if "youtube" in cmd:
         yt_search_patterns = [
             r"(?:tìm kiếm|tìm|bật|mở|phát|nghe|xem)\s*(?:bài hát|bài|video|nhạc|clip|nội dung|phim)?\s*(.+?)\s*(?:trên|ở|qua|bằng)\s*youtube",
@@ -221,10 +222,45 @@ def process_command(command_text, agy_path=None):
 
         if query:
             res = alex_actions.search_google_or_youtube(query, target="youtube")
-            return {"type": "app", "title": "Tìm kiếm YouTube", "speech": res, "hud_sub": f"Từ khóa: {query}"}
+            return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Từ khóa: {query}"}
         else:
             res = alex_actions.open_web_or_app("youtube")
             return {"type": "app", "title": "Mở YouTube", "speech": "Đã mở YouTube trên trình duyệt.", "hud_sub": "https://www.youtube.com"}
+
+    # B. Yêu cầu bật bài hát / phát nhạc tự nhiên (Không cần nói từ 'YouTube')
+    # Ví dụ: "Bật bài sóng gió", "Mở bài hát lạc trôi", "Nghe nhạc lofi", "Phát ca khúc..."
+    music_match = re.match(r"^(?:bật|mở|nghe|phát|chơi)\s+(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s*(.*)$", cmd)
+    if music_match:
+        query = music_match.group(1).strip()
+        if query and query not in ["hay", "nhẹ nhàng", "chill"]:
+            res = alex_actions.search_google_or_youtube(query, target="youtube")
+            return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Bài hát: {query}"}
+        else:
+            res = alex_actions.search_google_or_youtube("nhạc hay", target="youtube")
+            return {"type": "app", "title": "YouTube Nhạc Tuyển Chọn", "speech": "Đang mở nhạc hay trên YouTube cho bạn.", "hud_sub": "Nhạc tuyển chọn"}
+
+    # C. Yêu cầu xem video / clip / phim tự nhiên
+    video_match = re.match(r"^(?:bật|mở|xem|chiếu|phát)\s+(?:video|clip|phim\s*hoạt\s*hình|phim)\s*(.*)$", cmd)
+    if video_match:
+        query = video_match.group(1).strip()
+        if query:
+            res = alex_actions.search_google_or_youtube(query, target="youtube")
+            return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Video: {query}"}
+        else:
+            res = alex_actions.open_web_or_app("youtube")
+            return {"type": "app", "title": "Mở YouTube", "speech": "Đã mở YouTube trên trình duyệt.", "hud_sub": "https://www.youtube.com"}
+
+    # D. Mẫu câu trực tiếp bắt đầu bằng 'bài [tên]' hoặc 'nhạc [tên]' (Ví dụ: "bài sóng gió")
+    direct_media_match = re.match(r"^(?:bài\s*hát|bài\s*ca|bài|ca\s*khúc|nhạc)\s+(.+)$", cmd)
+    if direct_media_match:
+        query = direct_media_match.group(1).strip()
+        res = alex_actions.search_google_or_youtube(query, target="youtube")
+        return {"type": "app", "title": f"YouTube: {query.title()}", "speech": res, "hud_sub": f"Bài hát: {query}"}
+
+    # E. Các khẩu lệnh nghe nhạc ngắn gọn
+    if cmd in ["bật nhạc", "mở nhạc", "nghe nhạc", "phát nhạc", "bật bài hát", "mở bài hát"]:
+        res = alex_actions.search_google_or_youtube("nhạc hay", target="youtube")
+        return {"type": "app", "title": "YouTube Nhạc Tuyển Chọn", "speech": "Đang mở nhạc hay trên YouTube cho bạn.", "hud_sub": "YouTube Music"}
 
     # 9. TÌM KIẾM GOOGLE
     google_search_patterns = [
