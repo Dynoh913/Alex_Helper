@@ -37,6 +37,7 @@ from openwakeword.model import Model
 # Import các module kiến trúc mới
 import alex_actions
 import alex_brain
+import alex_corrector
 from alex_hud import AlexHUD
 GLOBAL_HOTKEY = "ctrl+alt+space"
 
@@ -239,9 +240,17 @@ def handle_user_interaction(recognizer, initial_frames=None):
         command = recognizer.recognize_google(audio_data, language="vi-VN")
         command, has_over = strip_over_termination(command)
         print(f" 🎯 [BẠN NÓI]: \"{command}\"")
+
+        # TIÊN ĐOÁN VÀ SỬA LỖI CHÍNH TẢ & PHIÊN ÂM TRƯỚC KHI XỬ LÝ (PREDICTIVE SPELL CORRECTION)
+        corrected_cmd, was_corrected = alex_corrector.predict_and_correct(command)
+        if was_corrected:
+            print(f" ✨ [TIÊN ĐOÁN & SỬA LỖI]: \"{command}\" ➔ \"{corrected_cmd}\"")
+            hud.update_text(f"\"{corrected_cmd}\"", "Đã tự động sửa chính tả...")
+            command = corrected_cmd
+        else:
+            hud.update_text(f"\"{command}\"", "Đang xử lý yêu cầu...")
+
         play_beep("success")
-        
-        hud.update_text(f"\"{command}\"", "Đang xử lý yêu cầu...")
 
         # Xử lý lệnh qua Alex Brain Router
         result = alex_brain.process_command(command, agy_path=AGY_PATH)
@@ -268,6 +277,10 @@ def handle_user_interaction(recognizer, initial_frames=None):
                     followup_text = recognizer.recognize_google(followup_audio, language="vi-VN")
                     followup_text, _ = strip_over_termination(followup_text)
                     print(f" 🎯 [BẠN TRẢ LỜI]: \"{followup_text}\"")
+                    corr_followup, was_corr_followup = alex_corrector.predict_and_correct(followup_text)
+                    if was_corr_followup:
+                        print(f" ✨ [TIÊN ĐOÁN & SỬA LỖI]: \"{followup_text}\" ➔ \"{corr_followup}\"")
+                        followup_text = corr_followup
                     play_beep("success")
                 except Exception:
                     pass

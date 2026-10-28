@@ -4,19 +4,24 @@ import requests
 import subprocess
 import alex_actions
 import alex_config
+import alex_corrector
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 def clean_command(text):
     """
     Chuẩn hóa câu lệnh tiếng Việt:
+    - Tiên đoán và sửa lỗi chính tả, phiên âm ASR trước khi phân tích
     - Loại bỏ dấu câu thừa ở đầu/cuối
     - Loại bỏ tiền tố xưng hô, khẩu ngữ (ví dụ: 'bảo mở...', 'hãy mở...', 'alex ơi...')
     - Loại bỏ hậu tố khẩu ngữ (ví dụ: '...cho tôi', '...giùm tôi', '...đi', '...nhé')
     """
     if not text:
         return ""
-    cmd = text.lower().strip()
+    
+    # Bước 0: Tiên đoán và sửa lỗi chính tả / phiên âm trước khi vào hệ thống
+    corrected_text, _ = alex_corrector.predict_and_correct(text)
+    cmd = corrected_text.lower().strip()
     cmd = re.sub(r"^[\,\.\?\!\:\;]+|[\,\.\?\!\:\;]+$", "", cmd).strip()
     
     # Sửa các lỗi nhận diện giọng nói tiếng Việt phổ biến (ASR phonetic confusions)

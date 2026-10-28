@@ -191,8 +191,26 @@ def run_tests():
         print(f" [FAIL] Test 14: {e}")
         failed += 1
 
+    # Test 15: Predictive Spelling & Phonetic Intent Correction (Tiên đoán & Sửa lỗi chính tả)
+    try:
+        import alex_corrector
+        c1, m1 = alex_corrector.predict_and_correct("Clickbuy bài sóng gió trên du túp")
+        assert "bật bài" in c1 and "youtube" in c1 and m1 is True
+
+        c2, m2 = alex_corrector.predict_and_correct("mở chorme và spotifi")
+        assert "chrome" in c2 and "spotify" in c2 and m2 is True
+
+        res_corrected = alex_brain.process_command("mở cờ rôm lên")
+        assert res_corrected["type"] == "app" and "Chrome" in res_corrected["title"]
+
+        print(f" [PASS] Test 15: Tiên đoán & sửa lỗi chính tả/phiên âm ASR ('du túp', 'chorme', 'clickbuy')")
+        passed += 1
+    except Exception as e:
+        print(f" [FAIL] Test 15: {e}")
+        failed += 1
+
     print("=" * 60)
-    print(f" KẾT QUẢ: {passed}/14 BÀI KIỂM THỬ ĐẠT CHUẨN (Passed: {passed}, Failed: {failed})")
+    print(f" KẾT QUẢ: {passed}/15 BÀI KIỂM THỬ ĐẠT CHUẨN (Passed: {passed}, Failed: {failed})")
     print("=" * 60)
 
 if __name__ == "__main__":
